@@ -1,7 +1,44 @@
-import random
 from enum import Enum
 from typing import List
+from urllib.parse import urlsplit
+from urllib.robotparser import RobotFileParser
 from uuid import uuid4
+
+import requests
+from dotenv import load_dotenv
+
+from linksurf.utils import get_env
+
+load_dotenv()
+
+proxy_http = get_env("PROXY_HTTP_URL")
+proxy_https = get_env("PROXY_HTTPS_URL")
+user_agent = get_env("USER_AGENT")
+
+
+class Fetcher:
+    def __init__(self, url: str):
+        self.url = url
+
+    def fetch(self) -> requests.Response:
+        split = urlsplit(self.url)
+
+        if split.scheme in ["http", "https"]:
+            return self._http()
+        else:
+            raise NotImplementedError()
+
+    def _http(self) -> requests.Response:
+        headers = {
+            "User-Agent": user_agent,
+        }
+
+        proxies = {
+            "http": proxy_http,
+            "https": proxy_https,
+        }
+
+        return requests.get(self.url, headers=headers, proxies=proxies)
 
 
 class URL:
@@ -9,6 +46,10 @@ class URL:
         self.address = address
         self.depth = depth
         self.status = URLStatus.PENDING
+
+    def get_base_domain(self):
+        parts = urlsplit(self.address)
+        return f"{parts.scheme}://{parts.netloc}"
 
 
 class URLStatus(Enum):
@@ -65,19 +106,33 @@ links: List[Link] = []
 
 def is_page_already_crawled(address: str) -> bool:
     for url in urls:
-        if url.address == address:
+        if url.address == address and url.status == URLStatus.CRAWLED:
             return True
 
     return False
 
 
-def can_crawl_page(address: str) -> bool:
-    domain = address.split("/")[0]
+def can_crawl_page(domain: str, address: str) -> bool:
     robots_url = f"{domain}/robots.txt"
 
-    # TODO: Check robots meta tag
+    print(f"Checking permissions for {domain}")
 
-    return random.choice([True, False])
+    fetcher = Fetcher(robots_url)
+    response = fetcher.fetch()
+
+    if response.status_code != 200:
+        return True
+
+    if not response.text:
+        return True
+
+    if not "text/plain" in response.headers["Content-Type"].lower():
+        return True
+
+    parser = RobotFileParser()
+    parser.parse(response.text.splitlines())
+
+    return parser.can_fetch("*", address)
 
 
 def crawl(address: str, depth: int = 1, max_depth: int = 4):
@@ -88,7 +143,7 @@ def crawl(address: str, depth: int = 1, max_depth: int = 4):
 
         return
 
-    if not can_crawl_page(url.address):
+    if not can_crawl_page(url.get_base_domain(), url.address):
         print(f"Skipping {url.address}: not allowed")
 
         return
@@ -115,10 +170,10 @@ def crawl(address: str, depth: int = 1, max_depth: int = 4):
 
     page.parse()
 
+    url.status = URLStatus.CRAWLED
+
     for link in page.links:
         crawl(link.target, depth + 1)
-
-    url.status = URLStatus.CRAWLED
 
 
 if __name__ == '__main__':
