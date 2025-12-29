@@ -1,16 +1,17 @@
 import json
 from datetime import datetime
 from enum import Enum
+from queue import Queue
 from typing import List
 from urllib.parse import urlsplit, urljoin
 from urllib.robotparser import RobotFileParser
-from uuid import uuid4, UUID
+from uuid import uuid4
 
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from linksurf.utils import get_env, get_base_domain
+from linksurf.utils import get_env, get_base_domain, ObjectEncoder
 
 load_dotenv()
 
@@ -20,18 +21,15 @@ user_agent = get_env("USER_AGENT")
 
 
 class Fetcher:
-    def __init__(self, url: str):
-        self.url = url
-
-    def fetch(self) -> requests.Response:
-        split = urlsplit(self.url)
+    def fetch(self, url: str) -> requests.Response:
+        split = urlsplit(url)
 
         if split.scheme in ["http", "https"]:
-            return self._http()
+            return self._http(url)
         else:
             raise NotImplementedError()
 
-    def _http(self) -> requests.Response:
+    def _http(self, url: str) -> requests.Response:
         headers = {
             "User-Agent": user_agent,
         }
@@ -41,7 +39,7 @@ class Fetcher:
             "https": proxy_https,
         }
 
-        return requests.get(self.url, headers=headers, proxies=proxies)
+        return requests.get(url, headers=headers, proxies=proxies)
 
 
 class RobotsCache:
@@ -49,7 +47,7 @@ class RobotsCache:
         self.user_agent = user_agent
         self.cache: dict[str, RobotFileParser] = {}
 
-    def get_parser(self, url: str) -> RobotFileParser | None:
+    def _get_parser(self, url: str) -> RobotFileParser | None:
         domain = get_base_domain(url)
 
         if domain in self.cache:
@@ -61,8 +59,8 @@ class RobotsCache:
 
         robots_url = f"{domain}/robots.txt"
 
-        fetcher = Fetcher(robots_url)
-        response = fetcher.fetch()
+        fetcher = Fetcher()
+        response = fetcher.fetch(robots_url)
 
         parser = RobotFileParser()
 
@@ -78,7 +76,7 @@ class RobotsCache:
         return parser
 
     def allowed(self, url: str) -> bool:
-        parser = self.get_parser(url)
+        parser = self._get_parser(url)
 
         if not parser:
             return True
@@ -90,7 +88,7 @@ robots = RobotsCache()
 
 
 class URL:
-    def __init__(self, address: str, depth: int = 1):
+    def __init__(self, address: str, depth: int = 0):
         self.address = address.removesuffix("/")
         self.domain = get_base_domain(address)
         self.depth = depth
@@ -164,6 +162,7 @@ class LinkType(Enum):
     EXTERNAL = 2
 
 
+queue: Queue[URL] = Queue()
 urls: List[URL] = []
 pages: List[Page] = []
 links: List[Link] = []
@@ -177,9 +176,7 @@ def is_page_already_crawled(address: str) -> bool:
     return False
 
 
-def crawl(address: str, depth: int = 1, max_depth: int = 4):
-    url = URL(address=address, depth=depth)
-
+def crawl(url: URL):
     if is_page_already_crawled(url.address):
         print(f"Skipping {url.address}: already crawled")
 
@@ -208,8 +205,8 @@ def crawl(address: str, depth: int = 1, max_depth: int = 4):
     print(f"Crawling {url.address}")
 
     try:
-        fetcher = Fetcher(url.address)
-        response = fetcher.fetch()
+        fetcher = Fetcher()
+        response = fetcher.fetch(url.address)
 
         if response.status_code != 200:
             print(f"Skipping {url.address}: request failed")
@@ -234,7 +231,9 @@ def crawl(address: str, depth: int = 1, max_depth: int = 4):
         url.status = URLStatus.CRAWLED
 
         for link in page.links:
-            crawl(link.target, depth + 1)
+            link_url = URL(address=link.target, depth=url.depth + 1)
+
+            queue.put(link_url)
 
         print(f"Finished crawling {url.address}")
     except Exception as e:
@@ -243,21 +242,19 @@ def crawl(address: str, depth: int = 1, max_depth: int = 4):
         url.status = URLStatus.FAILED
 
 
-class Encoder(json.JSONEncoder):
-    def default(self, object):
-        if isinstance(object, UUID):
-            return str(object)
-        if isinstance(object, Enum):
-            return object.name
-        return super().default(object)
-
-
 if __name__ == '__main__':
     seed = ["https://quotes.toscrape.com"]
 
     print(f"Starting crawl with {len(seed)} urls\n")
 
     for url in seed:
+        url = URL(address=url)
+
+        queue.put(url)
+
+    while not queue.empty():
+        url = queue.get()
+
         crawl(url)
 
     print(f"\nFinished crawl with {len(urls)} urls")
@@ -272,4 +269,4 @@ if __name__ == '__main__':
 
     # Temporary report
     with open(filename, "w", encoding="utf-8") as f:
-        json.dump({"urls": urls_data, "links": links_data}, f, cls=Encoder, indent=4)
+        json.dump({"urls": urls_data, "links": links_data}, f, cls=ObjectEncoder, indent=4)
