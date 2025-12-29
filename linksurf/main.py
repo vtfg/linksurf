@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from linksurf.utils import get_env, get_base_domain, ObjectEncoder
+from linksurf.helpers import get_env, get_base_domain, ObjectEncoder
 
 load_dotenv()
 
