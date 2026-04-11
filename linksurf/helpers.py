@@ -5,9 +5,11 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 
-def get_env(name, cast=str):
+def get_env(name, cast=str, default=None):
     if name in os.environ:
         return cast(os.environ[name])
+    elif default is not None:
+        return default
     else:
         raise KeyError("Missing env variable:", name)
 
