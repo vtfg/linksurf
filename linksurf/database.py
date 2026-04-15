@@ -49,7 +49,7 @@ class Link(Document):
         ]
 
 
-async def init():
+async def init_database():
     mongodb_url = get_env("MONGODB_URL", default="mongodb://root:root@localhost:27017")
     client = AsyncMongoClient(mongodb_url)
     await init_beanie(database=client.linksurf2, document_models=[Page, Link])

@@ -18,6 +18,12 @@ def get_base_domain(url: str):
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc}"
 
+
+def get_domain_name(url: str):
+    parts = urlsplit(url)
+    return parts.netloc
+
+
 class ObjectEncoder(json.JSONEncoder):
     def default(self, object):
         if isinstance(object, UUID):
