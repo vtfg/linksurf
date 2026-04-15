@@ -6,7 +6,14 @@ from beanie.odm.operators.update.general import Set
 from pydantic import BaseModel
 from pymongo import AsyncMongoClient, IndexModel, ASCENDING
 
-from linksurf.helpers import get_env
+from linksurf.helpers import get_env, get_base_domain
+
+
+class URL:
+    def __init__(self, address: str, depth: int = 0):
+        self.address = address
+        self.domain = get_base_domain(address)
+        self.depth = depth
 
 
 class LinkType(str, Enum):
