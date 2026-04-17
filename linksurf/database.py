@@ -35,7 +35,8 @@ class Metadata(BaseModel):
 
 class Page(Document):
     url: Annotated[str, Indexed(unique=True)]
-    html: str
+    url_hash: str
+    html_url: str
     metadata: Metadata
 
     class Settings:
@@ -62,10 +63,10 @@ async def init_database():
     await init_beanie(database=client.linksurf2, document_models=[Page, Link])
 
 
-async def save_page(url: str, html: str, metadata: Metadata) -> None:
+async def save_page(url: str, url_hash: str, html_url: str, metadata: Metadata) -> None:
     await Page.find_one(Page.url == url).upsert(
-        Set({Page.html: html, Page.metadata: metadata}),
-        on_insert=Page(url=url, html=html, metadata=metadata),
+        Set({Page.url_hash: url_hash, Page.html_url: html_url, Page.metadata: metadata}),
+        on_insert=Page(url=url, url_hash=url_hash, html_url=html_url, metadata=metadata),
     )
 
 

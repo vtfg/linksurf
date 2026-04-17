@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from queue import Queue
 
 from linksurf.cache import init_redis
@@ -6,17 +7,20 @@ from linksurf.database import Page, init_database, save_links, save_page, URL, L
 from linksurf.fetcher import Fetcher
 from linksurf.parser import HTMLParser
 from linksurf.robots import Robots
+from linksurf.storage import init_storage, upload_html
 
 robots = Robots()
 queue: Queue[URL] = Queue()
 
 
-async def is_page_already_crawled(address: str) -> bool:
-    return await Page.find_one(Page.url == address) is not None
+async def is_page_already_crawled(url_hash: str) -> bool:
+    return await Page.find_one(Page.url_hash == url_hash) is not None
 
 
 async def crawl(url: URL):
-    if await is_page_already_crawled(url.address):
+    url_hash = hashlib.sha256(url.address.encode()).hexdigest()
+
+    if await is_page_already_crawled(url_hash):
         print(f"Skipping {url.address}: already crawled")
 
         return
@@ -51,7 +55,9 @@ async def crawl(url: URL):
 
         print(f"Found {len(links)} hyperlinks")
 
-        await save_page(url.address, response.text, metadata)
+        html_url = upload_html(url_hash, response.text)
+
+        await save_page(url.address, url_hash, html_url, metadata)
         await save_links(links)
 
         for link in links:
@@ -66,8 +72,8 @@ async def crawl(url: URL):
 
 async def main():
     await init_database()
-
     await init_redis()
+    init_storage()
 
     pages_before = await Page.count()
 
