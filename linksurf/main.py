@@ -1,35 +1,29 @@
 import asyncio
 import hashlib
-from queue import Queue
 
-from linksurf.cache import init_redis
+from linksurf.cache import init_redis, get_redis
 from linksurf.database import Page, init_database, save_links, save_page, URL, LinkType
 from linksurf.fetcher import Fetcher
+from linksurf.frontier import URLFrontier
+from linksurf.helpers import get_domain_name
 from linksurf.parser import HTMLParser
 from linksurf.robots import Robots
 from linksurf.storage import init_storage, upload_html
 
 robots = Robots()
-queue: Queue[URL] = Queue()
 
 
-async def is_page_already_crawled(url_hash: str) -> bool:
-    return await Page.find_one(Page.url_hash == url_hash) is not None
+async def crawl(url: URL, frontier: URLFrontier):
+    domain_name = get_domain_name(url.address)
 
+    await frontier.wait_for_domain(domain_name)
 
-async def crawl(url: URL):
     url_hash = hashlib.sha256(url.address.encode()).hexdigest()
-
-    if await is_page_already_crawled(url_hash):
-        print(f"Skipping {url.address}: already crawled")
-
-        return
 
     print(f"Checking permissions for {url.address}")
 
     if not await robots.can_fetch(url.address):
         print(f"Skipping {url.address}: not allowed")
-
         return
 
     print(f"Crawling {url.address}")
@@ -39,14 +33,14 @@ async def crawl(url: URL):
 
         response = fetcher.fetch(url.address)
 
+        await frontier.mark_domain_crawled(domain_name)
+
         if response.status_code != 200:
             print(f"Skipping {url.address}: request failed")
-
             return
 
         if "text/html" not in response.headers["Content-Type"].lower():
             print(f"Skipping {url.address}: non html")
-
             return
 
         print(f"Parsing page {url.address}")
@@ -63,17 +57,19 @@ async def crawl(url: URL):
         for link in links:
             # Temporary validation to avoid blocks
             if link.type == LinkType.INTERNAL:
-                queue.put(URL(address=link.target, depth=url.depth + 1))
+                await frontier.push(URL(address=link.target, depth=url.depth + 1))
 
         print(f"Finished crawling {url.address}")
     except Exception as e:
-        print(f"Skipping {url.address}: error {e}")
+        print(f"Skipping {url.addressx}: error {e}")
 
 
 async def main():
     await init_database()
     await init_redis()
     init_storage()
+
+    frontier = URLFrontier(get_redis())
 
     pages_before = await Page.count()
 
@@ -82,12 +78,15 @@ async def main():
     print(f"Starting crawl with {len(seed)} seed urls\n")
 
     for address in seed:
-        queue.put(URL(address=address))
+        added = await frontier.push(URL(address=address))
 
-    while not queue.empty():
-        url = queue.get()
+        if not added:
+            print(f"Skipping {address}: already crawled")
 
-        await crawl(url)
+    while not await frontier.empty():
+        url = await frontier.pop()
+
+        await crawl(url, frontier)
 
     pages_after = await Page.count()
 
