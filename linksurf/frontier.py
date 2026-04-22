@@ -1,12 +1,10 @@
 import asyncio
 import hashlib
-import json
 
 import redis.asyncio as aioredis
 
 from linksurf.database import URL
 
-_QUEUE_KEY = "frontier:queue"
 _SEEN_KEY = "frontier:seen"
 _DOMAIN_KEY_PREFIX = "frontier:domain:"
 
@@ -25,36 +23,25 @@ class URLFrontier:
         if not added:
             return False
 
-        payload = json.dumps({"address": url.address, "depth": url.depth})
+        from linksurf.tasks import crawl_task
 
-        await self._redis.zadd(_QUEUE_KEY, {payload: url.depth})
+        await asyncio.to_thread(crawl_task.delay, url.address, url.depth)
 
         return True
 
-    async def pop(self) -> URL | None:
-        result = await self._redis.zpopmin(_QUEUE_KEY, count=1)
-
-        if not result:
-            return None
-
-        payload, _ = result[0]
-        data = json.loads(payload)
-
-        return URL(address=data["address"], depth=data["depth"])
-
-    async def empty(self) -> bool:
-        return await self._redis.zcard(_QUEUE_KEY) == 0
-
-    async def size(self) -> int:
-        return await self._redis.zcard(_QUEUE_KEY)
-
-    async def wait_for_domain(self, domain: str) -> None:
+    async def acquire_domain_slot(self, domain: str) -> None:
+        # blocks execution until domain is available
         key = f"{_DOMAIN_KEY_PREFIX}{domain}"
 
-        ttl = await self._redis.pttl(key)
+        while True:
+            acquired = await self._redis.set(key, 1, nx=True, ex=CRAWL_DELAY)
 
-        if ttl > 0:
-            await asyncio.sleep(ttl / 1000)
+            if acquired:
+                return
 
-    async def mark_domain_crawled(self, domain: str) -> None:
-        await self._redis.set(f"{_DOMAIN_KEY_PREFIX}{domain}", 1, ex=CRAWL_DELAY)
+            ttl = await self._redis.pttl(key)
+
+            await asyncio.sleep(ttl / 1000 if ttl > 0 else 0.1)
+
+    async def flush(self) -> None:
+        await self._redis.delete(_SEEN_KEY)

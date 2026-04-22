@@ -34,11 +34,25 @@ services:
       - '9001:9001'
     networks:
       - network
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    networks:
+      - network
 
 volumes:
   mongodb:
   redis:
   minio:
+  rabbitmq:
 
 networks:
   network:
