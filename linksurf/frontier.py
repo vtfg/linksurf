@@ -4,11 +4,61 @@ import hashlib
 import redis.asyncio as aioredis
 
 from linksurf.database import URL
+from linksurf.helpers import get_domain_name
 
 _SEEN_KEY = "frontier:seen"
 _DOMAIN_KEY_PREFIX = "frontier:domain:"
 
 CRAWL_DELAY = 2  # seconds between requests to the same domain
+
+_BLOCKED_DOMAINS = {
+    # Google
+    "google.com", "googleapis.com", "googletagmanager.com", "gstatic.com",
+    "googleusercontent.com", "youtube.com", "youtu.be", "gmail.com",
+    # Meta
+    "facebook.com", "instagram.com", "whatsapp.com", "meta.com", "fb.com", "fbcdn.net",
+    # Apple
+    "apple.com", "icloud.com",
+    # Amazon
+    "amazon.com", "amazonaws.com", "aws.amazon.com",
+    # Microsoft
+    "microsoft.com", "live.com", "outlook.com", "hotmail.com", "bing.com", "msn.com",
+    # Netflix
+    "netflix.com",
+    # X / Twitter
+    "twitter.com", "x.com", "t.co",
+    # LinkedIn
+    "linkedin.com",
+    # TikTok
+    "tiktok.com",
+    # Snapchat
+    "snapchat.com",
+    # Pinterest
+    "pinterest.com",
+    # Reddit
+    "reddit.com",
+    # Spotify
+    "spotify.com",
+    # Adobe
+    "adobe.com",
+    # Salesforce
+    "salesforce.com",
+    # PayPal
+    "paypal.com",
+    # Cloudflare
+    "cloudflare.com",
+    # Shopify
+    "shopify.com",
+    # WordPress
+    "wordpress.com", "wp.com",
+    # Tracking / analytics
+    "doubleclick.net", "googlesyndication.com", "adservice.google.com",
+}
+
+
+def _is_blocked(url: str) -> bool:
+    netloc = get_domain_name(url)
+    return any(netloc == d or netloc.endswith(f".{d}") for d in _BLOCKED_DOMAINS)
 
 
 class URLFrontier:
@@ -16,6 +66,9 @@ class URLFrontier:
         self._redis = redis
 
     async def push(self, url: URL) -> bool:
+        if _is_blocked(url.address):
+            return False
+
         url_hash = hashlib.sha256(url.address.encode()).hexdigest()
 
         added = await self._redis.sadd(_SEEN_KEY, url_hash)

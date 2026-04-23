@@ -7,7 +7,7 @@ from celery.utils.log import get_task_logger
 
 from linksurf.cache import get_redis
 from linksurf.database import URL
-from linksurf.database import save_links, save_page, LinkType
+from linksurf.database import save_links, save_page
 from linksurf.fetcher import Fetcher
 from linksurf.frontier import URLFrontier
 from linksurf.helpers import get_domain_name
@@ -100,8 +100,7 @@ async def crawl(url: URL, frontier: URLFrontier) -> None:
         await save_links(links)
 
         for link in links:
-            if link.type == LinkType.INTERNAL:
-                await frontier.push(URL(address=link.target, depth=url.depth + 1))
+            await frontier.push(URL(address=link.target, depth=url.depth + 1))
 
         print(f"Finished crawling {url.address}")
     except Exception as e:
