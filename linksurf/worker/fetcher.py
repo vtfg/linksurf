@@ -1,15 +1,12 @@
 from urllib.parse import urlsplit
 
 import requests
-from dotenv import load_dotenv
 
 from linksurf.helpers import get_env
 
-load_dotenv()
-
-proxy_http = get_env("PROXY_HTTP_URL")
-proxy_https = get_env("PROXY_HTTPS_URL")
-user_agent = get_env("USER_AGENT")
+PROXY_HTTP = get_env("PROXY_HTTP_URL")
+PROXY_HTTPS = get_env("PROXY_HTTPS_URL")
+USER_AGENT = get_env("USER_AGENT")
 
 
 class Fetcher:
@@ -23,12 +20,12 @@ class Fetcher:
 
     def _http(self, url: str) -> requests.Response:
         headers = {
-            "User-Agent": user_agent,
+            "User-Agent": USER_AGENT,
         }
 
         proxies = {
-            "http": proxy_http,
-            "https": proxy_https,
+            "http": PROXY_HTTP,
+            "https": PROXY_HTTPS,
         }
 
         return requests.get(url, headers=headers, proxies=proxies, allow_redirects=False)

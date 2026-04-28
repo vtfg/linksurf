@@ -1,7 +1,11 @@
 import json
 
 import pika
+from dotenv import load_dotenv
 
+load_dotenv()
+
+from linksurf.constants import QUEUE_NAME
 from linksurf.helpers import get_env
 from linksurf.models import SubmitResultBody
 from linksurf.worker.client import FrontierClient
@@ -9,7 +13,6 @@ from linksurf.worker.fetcher import Fetcher
 from linksurf.worker.parser import HTMLParser
 
 RABBITMQ_URL = get_env("RABBITMQ_URL", default="amqp://guest:guest@localhost:5672/")
-QUEUE_NAME = "frontier.urls"
 
 
 def run() -> None:

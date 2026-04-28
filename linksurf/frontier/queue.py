@@ -4,17 +4,17 @@ from urllib.parse import urlsplit
 
 import aio_pika
 
+from linksurf.constants import QUEUE_NAME
 from linksurf.frontier.cache import get_redis
 from linksurf.frontier.robots import Robots
 from linksurf.helpers import get_domain_name, get_env, hash_url
 
 _SEEN_KEY = "frontier:seen"
-_DOMAIN_NEXT_PREFIX = "frontier:domain:next:"
+_DOMAIN_DELAY_PREFIX = "frontier:domain:next:"
 
 CRAWL_DELAY = 2
 
 RABBITMQ_URL = get_env("RABBITMQ_URL", default="amqp://guest:guest@localhost:5672/")
-QUEUE_NAME = "frontier.urls"
 
 _BLOCKED_DOMAINS = {
     # Google
@@ -124,7 +124,7 @@ class Queue:
 
     async def reserve_slot(self, url: str) -> float:
         domain = get_domain_name(url)
-        domain_key = f"{_DOMAIN_NEXT_PREFIX}{domain}"
+        domain_key = f"{_DOMAIN_DELAY_PREFIX}{domain}"
 
         now = time.time()
         raw = await self.redis.get(domain_key)

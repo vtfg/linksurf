@@ -6,7 +6,7 @@ import requests
 from linksurf.frontier.cache import get_redis
 from linksurf.helpers import get_base_domain, get_domain_name
 
-TTL = 60 * 60 * 24  # 24 hours
+ROBOTS_TTL = 60 * 60 * 24  # 24 hours
 
 
 class Robots:
@@ -41,7 +41,7 @@ class Robots:
 
         text = await self._fetch(domain) or ""
 
-        await redis.set(key, text, ex=TTL)
+        await redis.set(key, text, ex=ROBOTS_TTL)
 
         return self._build_parser(text)
 

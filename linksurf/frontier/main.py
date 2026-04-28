@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI
+
+load_dotenv()
 
 from linksurf.frontier.cache import init_redis
 from linksurf.frontier.database import Link as LinkDocument, init_database, save_links, save_page
@@ -18,7 +21,7 @@ from linksurf.models import (
 )
 
 HOST = get_env("FRONTIER_HOST", default="0.0.0.0")
-PORT = int(get_env("FRONTIER_PORT", default="8000"))
+PORT = get_env("FRONTIER_PORT", cast=int, default=8000)
 
 queue: Queue | None = None
 
