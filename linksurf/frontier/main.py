@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+@app.get("/health", status_code=200)
+async def health():
+    return {"status": "ok"}
+
+
 @app.post("/reserve", response_model=ReserveSlotResponse)
 async def reserve_slot(body: ReserveSlotBody):
     delay_seconds = await queue.reserve_slot(body.url)

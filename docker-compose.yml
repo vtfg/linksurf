@@ -12,6 +12,11 @@ services:
       - '27017:27017'
     networks:
       - network
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis
@@ -23,6 +28,11 @@ services:
       - '6379:6379'
     networks:
       - network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
     image: minio/minio
@@ -39,6 +49,11 @@ services:
       - '9001:9001'
     networks:
       - network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   rabbitmq:
     image: rabbitmq:4-management
@@ -52,6 +67,61 @@ services:
     ports:
       - '5672:5672'
       - '15672:15672'
+    networks:
+      - network
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontier:
+    build: .
+    command: python -m linksurf.frontier.main
+    container_name: frontier
+    restart: always
+    environment:
+      REDIS_URL: redis://redis:6379
+      MONGODB_URL: mongodb://root:root@mongodb:27017
+      MINIO_ENDPOINT: http://minio:9000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - '8000:8000'
+    networks:
+      - network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  worker:
+    build: .
+    command: python -m linksurf.worker.main
+    restart: always
+    environment:
+      FRONTIER_URL: http://frontier:8000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PROXY_HTTP_URL: ${PROXY_HTTP_URL}
+      PROXY_HTTPS_URL: ${PROXY_HTTPS_URL}
+      USER_AGENT: ${USER_AGENT}
+    depends_on:
+      frontier:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      replicas: 10
     networks:
       - network
 
