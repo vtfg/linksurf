@@ -1,6 +1,7 @@
 services:
   mongodb:
     image: mongo
+    container_name: mongodb
     restart: always
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
@@ -11,8 +12,10 @@ services:
       - '27017:27017'
     networks:
       - network
+
   redis:
     image: redis
+    container_name: redis
     restart: always
     volumes:
       - redis:/data
@@ -20,8 +23,10 @@ services:
       - '6379:6379'
     networks:
       - network
+
   minio:
     image: minio/minio
+    container_name: minio
     restart: always
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -34,8 +39,10 @@ services:
       - '9001:9001'
     networks:
       - network
+
   rabbitmq:
     image: rabbitmq:4-management
+    container_name: rabbitmq
     restart: always
     environment:
       RABBITMQ_DEFAULT_USER: guest

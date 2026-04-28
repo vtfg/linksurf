@@ -2,7 +2,7 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
-from linksurf.database import Metadata, Link, MetaTag, LinkType
+from linksurf.models import Link, LinkType, Metadata, MetaTag
 
 
 class HTMLParser:
@@ -10,7 +10,6 @@ class HTMLParser:
     def parse(page_url: str, html: str) -> tuple[Metadata, list[Link]]:
         metadata = MetadataExtractor.extract(html)
         links = LinkExtractor.extract(page_url, html)
-
         return metadata, links
 
 
@@ -18,17 +17,14 @@ class LinkExtractor:
     @staticmethod
     def extract(page_url: str, html: str) -> list[Link]:
         soup = BeautifulSoup(html, "html.parser")
-
         links = []
 
         for a in soup.find_all("a"):
             href = a.get("href")
-
             if not href:
                 continue
 
             target = urljoin(page_url, href)
-
             source_hostname = urlsplit(page_url).hostname
             target_hostname = urlsplit(target).hostname
 
@@ -36,7 +32,13 @@ class LinkExtractor:
             rel = a.get("rel") or []
             nofollow = "nofollow" in rel
 
-            links.append(Link(source=page_url, target=target, type=link_type, text=a.string, nofollow=nofollow))
+            links.append(Link(
+                source=page_url,
+                target=target,
+                type=link_type,
+                text=a.string,
+                nofollow=nofollow,
+            ))
 
         return links
 
@@ -53,14 +55,12 @@ class MetadataExtractor:
         title = title_tag.string if title_tag else None
 
         tags = []
-
         for meta in soup.find_all("meta"):
             name = meta.get("name") or meta.get("property")
             content = meta.get("content")
-
             if name and content:
                 tags.append(MetaTag(name=name, content=content))
 
-        description = next((m.content for m in tags if m.name == "description"), None)
+        description = next((t.content for t in tags if t.name == "description"), None)
 
         return Metadata(title=title, description=description, lang=lang, tags=tags)

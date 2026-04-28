@@ -31,4 +31,4 @@ class Fetcher:
             "https": proxy_https,
         }
 
-        return requests.get(url, headers=headers, proxies=proxies)
+        return requests.get(url, headers=headers, proxies=proxies, allow_redirects=False)

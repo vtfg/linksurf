@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from enum import Enum
@@ -22,6 +23,10 @@ def get_base_domain(url: str):
 def get_domain_name(url: str):
     parts = urlsplit(url)
     return parts.netloc
+
+
+def hash_url(url: str) -> str:
+    return hashlib.sha256(url.encode()).hexdigest()
 
 
 class ObjectEncoder(json.JSONEncoder):

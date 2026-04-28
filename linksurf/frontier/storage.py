@@ -25,15 +25,18 @@ async def init_storage() -> None:
             await client.create_bucket(Bucket=MINIO_BUCKET)
 
 
-async def upload_html(url_hash: str, html: str) -> str:
+async def generate_presigned_upload_url(url_hash: str) -> tuple[str, str]:
     key = f"html/{url_hash}"
 
     async with _make_client() as client:
-        await client.put_object(
-            Bucket=MINIO_BUCKET,
-            Key=key,
-            Body=html.encode(),
-            ContentType="text/plain",
+        presigned_url = await client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": MINIO_BUCKET, "Key": key, "ContentType": "text/plain"},
+            ExpiresIn=300,
         )
 
+    return presigned_url, key
+
+
+def html_storage_url(key: str) -> str:
     return f"{MINIO_ENDPOINT}/{MINIO_BUCKET}/{key}"

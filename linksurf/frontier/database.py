@@ -1,36 +1,13 @@
-from enum import Enum
 from typing import Annotated
 
 from beanie import Document, Indexed, init_beanie
 from beanie.odm.operators.update.general import Set
-from pydantic import BaseModel
 from pymongo import AsyncMongoClient, IndexModel, ASCENDING
 
-from linksurf.helpers import get_env, get_base_domain
+from linksurf.helpers import get_env
+from linksurf.models import Link as LinkBase, LinkType, Metadata, MetaTag  # noqa: F401
 
-
-class URL:
-    def __init__(self, address: str, depth: int = 0):
-        self.address = address
-        self.domain = get_base_domain(address)
-        self.depth = depth
-
-
-class LinkType(str, Enum):
-    INTERNAL = "INTERNAL"
-    EXTERNAL = "EXTERNAL"
-
-
-class MetaTag(BaseModel):
-    name: str
-    content: str
-
-
-class Metadata(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    lang: str | None = None
-    tags: list[MetaTag] = []
+MONGODB_URL = get_env("MONGODB_URL", default="mongodb://root:root@localhost:27017")
 
 
 class Page(Document):
@@ -43,13 +20,7 @@ class Page(Document):
         name = "pages"
 
 
-class Link(Document):
-    source: str
-    target: str
-    type: LinkType
-    text: str | None = None
-    nofollow: bool = False
-
+class Link(LinkBase, Document):
     class Settings:
         name = "links"
         indexes = [
@@ -57,9 +28,9 @@ class Link(Document):
         ]
 
 
-async def init_database():
-    mongodb_url = get_env("MONGODB_URL", default="mongodb://root:root@localhost:27017")
-    client = AsyncMongoClient(mongodb_url)
+async def init_database() -> None:
+    client = AsyncMongoClient(MONGODB_URL)
+
     await init_beanie(database=client.linksurf, document_models=[Page, Link])
 
 
