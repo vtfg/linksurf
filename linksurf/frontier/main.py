@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, Response, status
 
 load_dotenv()
 
@@ -17,7 +17,7 @@ from linksurf.models import (
     ReserveSlotBody,
     ReserveSlotResponse,
     SeedBody,
-    SubmitResultBody, LinkType,
+    SubmitResultBody, LinkType, SeedResponse,
 )
 
 HOST = get_env("FRONTIER_HOST", default="0.0.0.0")
@@ -94,9 +94,14 @@ async def _process_result(body: SubmitResultBody) -> None:
         await queue.push(link.target, depth)
 
 
-@app.post("/seed", status_code=204)
-async def seed(body: SeedBody):
-    await queue.seed(body.url)
+@app.post("/seed", status_code=200)
+async def seed(body: SeedBody, response: Response):
+    added = await queue.push(body.url, 0)
+
+    if not added:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+
+    return SeedResponse(ok=added)
 
 
 if __name__ == "__main__":

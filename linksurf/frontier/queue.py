@@ -1,11 +1,11 @@
 import json
 import time
-from urllib.parse import urlsplit
 
 import aio_pika
 
 from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
 from linksurf.frontier.cache import get_redis
+from linksurf.frontier.filter import is_url_allowed, normalize_url
 from linksurf.frontier.robots import Robots
 from linksurf.helpers import get_domain_name, get_env, hash_url
 
@@ -15,56 +15,6 @@ _DOMAIN_DELAY_PREFIX = "frontier:domain:next:"
 CRAWL_DELAY = 2
 
 RABBITMQ_URL = get_env("RABBITMQ_URL", default="amqp://guest:guest@localhost:5672/")
-
-_BLOCKED_DOMAINS = {
-    # Google
-    "google.com", "googleapis.com", "googletagmanager.com", "gstatic.com",
-    "googleusercontent.com", "youtube.com", "youtu.be", "gmail.com",
-    # Meta
-    "facebook.com", "instagram.com", "whatsapp.com", "meta.com", "fb.com", "fbcdn.net",
-    # Apple
-    "apple.com", "icloud.com",
-    # Amazon
-    "amazon.com", "amazonaws.com", "aws.amazon.com",
-    # Microsoft
-    "microsoft.com", "live.com", "outlook.com", "hotmail.com", "bing.com", "msn.com",
-    # Netflix
-    "netflix.com",
-    # X / Twitter
-    "twitter.com", "x.com", "t.co",
-    # LinkedIn
-    "linkedin.com",
-    # TikTok
-    "tiktok.com",
-    # Snapchat
-    "snapchat.com",
-    # Pinterest
-    "pinterest.com",
-    # Reddit
-    "reddit.com",
-    # Spotify
-    "spotify.com",
-    # Adobe
-    "adobe.com",
-    # Salesforce
-    "salesforce.com",
-    # PayPal
-    "paypal.com",
-    # Cloudflare
-    "cloudflare.com",
-    # Shopify
-    "shopify.com",
-    # WordPress
-    "wordpress.com", "wp.com",
-    # Tracking / analytics
-    "doubleclick.net", "googlesyndication.com", "adservice.google.com",
-}
-
-
-def _is_blocked(url: str) -> bool:
-    netloc = get_domain_name(url)
-
-    return any(netloc == d or netloc.endswith(f".{d}") for d in _BLOCKED_DOMAINS)
 
 
 class Queue:
@@ -92,22 +42,10 @@ class Queue:
             routing_key=QUEUE_NAME,
         )
 
-    async def seed(self, url: str) -> bool:
-        if urlsplit(url).scheme not in ("http", "https"):
-            return False
-
-        if _is_blocked(url):
-            return False
-
-        await self._publish(url, 0)
-
-        return True
-
     async def push(self, url: str, depth: int) -> bool:
-        if urlsplit(url).scheme not in ("http", "https"):
-            return False
+        url = normalize_url(url)
 
-        if _is_blocked(url):
+        if not is_url_allowed(url):
             return False
 
         if not await self.robots.can_fetch(url):

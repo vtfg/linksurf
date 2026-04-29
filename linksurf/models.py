@@ -55,6 +55,10 @@ class SeedBody(BaseModel):
     url: str
 
 
+class SeedResponse(BaseModel):
+    ok: bool
+
+
 class SubmitResultBody(BaseModel):
     address: str
     depth: int
