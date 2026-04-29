@@ -5,7 +5,7 @@ from beanie.odm.operators.update.general import Set
 from pymongo import AsyncMongoClient, IndexModel, ASCENDING
 
 from linksurf.helpers import get_env
-from linksurf.models import Link as LinkBase, LinkType, Metadata, MetaTag  # noqa: F401
+from linksurf.models import Link as LinkBase, Metadata
 
 MONGODB_URL = get_env("MONGODB_URL", default="mongodb://root:root@localhost:27017")
 
@@ -24,7 +24,7 @@ class Link(LinkBase, Document):
     class Settings:
         name = "links"
         indexes = [
-            IndexModel([("source", ASCENDING), ("target", ASCENDING)], unique=True),
+            IndexModel([("source", ASCENDING), ("target", ASCENDING)]),
         ]
 
 
