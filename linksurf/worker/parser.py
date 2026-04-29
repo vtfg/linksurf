@@ -21,14 +21,22 @@ class LinkExtractor:
 
         for a in soup.find_all("a"):
             href = a.get("href")
+
             if not href:
                 continue
 
             target = urljoin(page_url, href)
+
             source_hostname = urlsplit(page_url).hostname
             target_hostname = urlsplit(target).hostname
 
-            link_type = LinkType.INTERNAL if source_hostname == target_hostname else LinkType.EXTERNAL
+            if not source_hostname or not target_hostname:
+                continue
+
+            source_domain = source_hostname.removeprefix("www.")
+            target_domain = target_hostname.removeprefix("www.")
+
+            link_type = LinkType.INTERNAL if source_domain == target_domain else LinkType.EXTERNAL
             rel = a.get("rel") or []
             nofollow = "nofollow" in rel
 

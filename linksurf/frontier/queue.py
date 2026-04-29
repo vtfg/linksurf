@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 import aio_pika
 
-from linksurf.constants import QUEUE_NAME
+from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
 from linksurf.frontier.cache import get_redis
 from linksurf.frontier.robots import Robots
 from linksurf.helpers import get_domain_name, get_env, hash_url
@@ -78,13 +78,16 @@ class Queue:
 
         self._channel = await connection.channel()
 
-        await self._channel.declare_queue(QUEUE_NAME, durable=True)
+        await self._channel.declare_queue(QUEUE_NAME, durable=True, arguments={"x-max-priority": QUEUE_MAX_PRIORITY})
 
     async def _publish(self, url: str, depth: int) -> None:
+        priority = max(0, QUEUE_MAX_PRIORITY - depth)
+
         await self._channel.default_exchange.publish(
             aio_pika.Message(
                 body=json.dumps({"url": url, "depth": depth}).encode(),
                 delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                priority=priority,
             ),
             routing_key=QUEUE_NAME,
         )
@@ -112,15 +115,12 @@ class Queue:
 
         url_hash = hash_url(url)
 
-        if await self.redis.sismember(_SEEN_KEY, url_hash):
+        if not await self.redis.sadd(_SEEN_KEY, url_hash):
             return False
 
         await self._publish(url, depth)
 
         return True
-
-    async def mark_seen(self, url_hash: str) -> None:
-        await self.redis.sadd("frontier:seen", url_hash)
 
     async def reserve_slot(self, url: str) -> float:
         domain = get_domain_name(url)

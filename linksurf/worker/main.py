@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from linksurf.constants import QUEUE_NAME
+from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
 from linksurf.helpers import get_env
 from linksurf.models import SubmitResultBody
 from linksurf.worker.client import FrontierClient
@@ -22,10 +22,10 @@ def run() -> None:
     connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
 
     channel = connection.channel()
-    channel.queue_declare(queue=QUEUE_NAME, durable=True)
+    channel.queue_declare(queue=QUEUE_NAME, durable=True, arguments={"x-max-priority": QUEUE_MAX_PRIORITY})
     channel.basic_qos(prefetch_count=1)
 
-    def on_message(ch, method, _properties, body):
+    def on_message(ch, method, properties, body):
         data = json.loads(body)
         url = data["url"]
         depth = data["depth"]
@@ -75,7 +75,14 @@ def run() -> None:
         except Exception as e:
             print(f"Error crawling {url}: {e}")
 
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+
+            ch.basic_publish(
+                exchange="",
+                routing_key=QUEUE_NAME,
+                body=body,
+                properties=pika.BasicProperties(delivery_mode=2, priority=properties.priority),
+            )
 
     channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_message, auto_ack=False)
 

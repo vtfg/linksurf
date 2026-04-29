@@ -1,1 +1,2 @@
 QUEUE_NAME = "linksurf.urls"
+QUEUE_MAX_PRIORITY = 10

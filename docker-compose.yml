@@ -58,6 +58,7 @@ services:
   rabbitmq:
     image: rabbitmq:4-management
     container_name: rabbitmq
+    hostname: rabbitmq
     restart: always
     environment:
       RABBITMQ_DEFAULT_USER: guest
@@ -117,8 +118,6 @@ services:
       USER_AGENT: ${USER_AGENT}
     depends_on:
       frontier:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
     deploy:
       replicas: 10

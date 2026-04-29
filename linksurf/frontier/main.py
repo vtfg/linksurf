@@ -12,6 +12,7 @@ from linksurf.frontier.queue import Queue
 from linksurf.frontier.storage import generate_presigned_upload_url, html_storage_url, init_storage
 from linksurf.helpers import get_env, hash_url
 from linksurf.models import (
+    LinkType,
     PresignedUploadURLBody,
     PresignedUploadURLResponse,
     ReserveSlotBody,
@@ -80,10 +81,10 @@ async def _process_result(body: SubmitResultBody) -> None:
 
     await save_links(links)
 
-    await queue.mark_seen(url_hash)
-
     for link in body.links:
-        await queue.push(link.target, body.depth + 1)
+        depth = 0 if link.type == LinkType.EXTERNAL else body.depth + 1
+
+        await queue.push(link.target, depth)
 
 
 @app.post("/seed", status_code=204)
