@@ -7,18 +7,17 @@ from fastapi import BackgroundTasks, FastAPI
 load_dotenv()
 
 from linksurf.frontier.cache import init_redis
-from linksurf.frontier.database import Link as LinkDocument, init_database, save_links, save_page
+from linksurf.frontier.database import Link as LinkDocument, init_database, save_links, save_url
 from linksurf.frontier.queue import Queue
 from linksurf.frontier.storage import generate_presigned_upload_url, html_storage_url, init_storage
 from linksurf.helpers import get_env, hash_url
 from linksurf.models import (
-    LinkType,
     PresignedUploadURLBody,
     PresignedUploadURLResponse,
     ReserveSlotBody,
     ReserveSlotResponse,
     SeedBody,
-    SubmitResultBody,
+    SubmitResultBody, LinkType,
 )
 
 HOST = get_env("FRONTIER_HOST", default="0.0.0.0")
@@ -71,11 +70,19 @@ async def submit_result(body: SubmitResultBody, background_tasks: BackgroundTask
 
 
 async def _process_result(body: SubmitResultBody) -> None:
-    url_hash = hash_url(body.url)
+    url_hash = hash_url(body.address)
 
-    html_url = html_storage_url(body.html_key)
+    content_url = html_storage_url(body.content_key)
 
-    await save_page(body.url, url_hash, html_url, body.metadata)
+    await save_url(
+        address=body.address,
+        url_hash=url_hash,
+        content_url=content_url,
+        http=body.http,
+        headers=body.headers,
+        type=body.type,
+        page=body.page,
+    )
 
     links = [LinkDocument(**link.model_dump()) for link in body.links]
 
@@ -89,7 +96,7 @@ async def _process_result(body: SubmitResultBody) -> None:
 
 @app.post("/seed", status_code=204)
 async def seed(body: SeedBody):
-    await queue.push(body.url, 0)
+    await queue.seed(body.url)
 
 
 if __name__ == "__main__":

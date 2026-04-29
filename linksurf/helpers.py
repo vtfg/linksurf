@@ -29,6 +29,10 @@ def hash_url(url: str) -> str:
     return hashlib.sha256(url.encode()).hexdigest()
 
 
+def strip(value: str | None) -> str | None:
+    return value.strip() if value else None
+
+
 class ObjectEncoder(json.JSONEncoder):
     def default(self, object):
         if isinstance(object, UUID):

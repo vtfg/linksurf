@@ -21,11 +21,17 @@ class MetaTag(BaseModel):
     content: str
 
 
-class Metadata(BaseModel):
+class Page(BaseModel):
     title: str | None = None
     description: str | None = None
     lang: str | None = None
-    tags: list[MetaTag] = []
+    metadata: list[MetaTag] = []
+
+
+class HttpInfo(BaseModel):
+    status_code: int
+    size: int
+    response_time: int
 
 
 class ReserveSlotBody(BaseModel):
@@ -50,8 +56,11 @@ class SeedBody(BaseModel):
 
 
 class SubmitResultBody(BaseModel):
-    url: str
+    address: str
     depth: int
-    html_key: str
-    metadata: Metadata
+    content_key: str
+    http: HttpInfo
+    headers: dict[str, str]
+    type: str
+    page: Page
     links: list[Link]

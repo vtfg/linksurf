@@ -2,14 +2,16 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
-from linksurf.models import Link, LinkType, Metadata, MetaTag
+from linksurf.helpers import strip
+from linksurf.models import Link, LinkType, MetaTag, Page
 
 
 class HTMLParser:
     @staticmethod
-    def parse(page_url: str, html: str) -> tuple[Metadata, list[Link]]:
+    def parse(page_url: str, html: str) -> tuple[Page, list[Link]]:
         metadata = MetadataExtractor.extract(html)
         links = LinkExtractor.extract(page_url, html)
+
         return metadata, links
 
 
@@ -44,7 +46,7 @@ class LinkExtractor:
                 source=page_url,
                 target=target,
                 type=link_type,
-                text=a.string,
+                text=a.get_text(strip=True) or None,
                 nofollow=nofollow,
             ))
 
@@ -53,22 +55,23 @@ class LinkExtractor:
 
 class MetadataExtractor:
     @staticmethod
-    def extract(html: str) -> Metadata:
+    def extract(html: str) -> Page:
         soup = BeautifulSoup(html, "html.parser")
 
         html_tag = soup.find("html")
-        lang = html_tag.get("lang") if html_tag else None
+        lang = strip(html_tag.get("lang") if html_tag else None)
 
         title_tag = soup.find("title")
-        title = title_tag.string if title_tag else None
+        title = title_tag.get_text(strip=True) if title_tag else None
 
-        tags = []
+        metadata = []
         for meta in soup.find_all("meta"):
-            name = meta.get("name") or meta.get("property")
-            content = meta.get("content")
+            name = strip(meta.get("name") or meta.get("property"))
+            content = strip(meta.get("content"))
+
             if name and content:
-                tags.append(MetaTag(name=name, content=content))
+                metadata.append(MetaTag(name=name, content=content))
 
-        description = next((t.content for t in tags if t.name == "description"), None)
+        description = next((t.content for t in metadata if t.name == "description"), None)
 
-        return Metadata(title=title, description=description, lang=lang, tags=tags)
+        return Page(title=title, description=description, lang=lang, metadata=metadata)

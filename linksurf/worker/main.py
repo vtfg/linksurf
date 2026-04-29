@@ -7,7 +7,7 @@ load_dotenv()
 
 from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
 from linksurf.helpers import get_env
-from linksurf.models import SubmitResultBody
+from linksurf.models import HttpInfo, SubmitResultBody
 from linksurf.worker.client import FrontierClient
 from linksurf.worker.fetcher import Fetcher
 from linksurf.worker.parser import HTMLParser
@@ -38,34 +38,47 @@ def run() -> None:
             if slot.delay_ms > 0:
                 connection.sleep(slot.delay_ms / 1000)
 
-            resp = fetcher.fetch(url)
+            response = fetcher.fetch(url)
 
-            if resp.status_code != 200:
-                print(f"Skipping {url}: status {resp.status_code}")
+            if response.status_code != 200:
+                print(f"Skipping {url}: status {response.status_code}")
 
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
                 return
 
-            if "text/html" not in resp.headers.get("Content-Type", "").lower():
+            content_type = response.headers.get("Content-Type", "")
+
+            if "text/html" not in content_type.lower():
                 print(f"Skipping {url}: not HTML")
 
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
                 return
 
-            metadata, links = HTMLParser.parse(url, resp.text)
+            page, links = HTMLParser.parse(url, response.text)
 
             print(f"Found {len(links)} links on {url}")
 
+            type_ = content_type.split(";")[0].strip().split("/")[-1]
+
+            http = HttpInfo(
+                status_code=response.status_code,
+                size=len(response.content),
+                response_time=int(response.elapsed.total_seconds() * 1000),
+            )
+
             upload = client.get_presigned_upload_url(url)
-            client.upload_html(upload.presigned_url, resp.text)
+            client.upload_html(upload.presigned_url, response.text)
 
             client.submit_result(SubmitResultBody(
-                url=url,
+                address=url,
                 depth=depth,
-                html_key=upload.key,
-                metadata=metadata,
+                content_key=upload.key,
+                http=http,
+                headers=dict(response.headers),
+                type=type_,
+                page=page,
                 links=links,
             ))
 
