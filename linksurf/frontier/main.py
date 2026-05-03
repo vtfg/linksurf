@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 import uvicorn
 from dotenv import load_dotenv
@@ -6,8 +7,8 @@ from fastapi import BackgroundTasks, FastAPI, Response, status
 
 load_dotenv()
 
-from linksurf.frontier.cache import init_redis
-from linksurf.frontier.database import Link as LinkDocument, init_database, save_links, save_url
+from linksurf.frontier.cache import init_redis, update_domain_stats
+from linksurf.frontier.database import Link as LinkDocument, init_database, save_domain, save_links, save_url
 from linksurf.frontier.queue import Queue
 from linksurf.frontier.storage import generate_presigned_upload_url, html_storage_url, init_storage
 from linksurf.helpers import get_env, hash_url
@@ -71,8 +72,8 @@ async def submit_result(body: SubmitResultBody, background_tasks: BackgroundTask
 
 async def _process_result(body: SubmitResultBody) -> None:
     url_hash = hash_url(body.address)
-
     content_url = html_storage_url(body.content_key)
+    domain = urlsplit(body.address).hostname.removeprefix("www.")
 
     await save_url(
         address=body.address,
@@ -83,6 +84,10 @@ async def _process_result(body: SubmitResultBody) -> None:
         type=body.type,
         page=body.page,
     )
+
+    await save_domain(domain)
+
+    await update_domain_stats(body.address, body.http.response_time, body.http.size)
 
     links = [LinkDocument(**link.model_dump()) for link in body.links]
 

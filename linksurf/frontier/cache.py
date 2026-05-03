@@ -1,8 +1,15 @@
+from datetime import datetime, timezone
+
 import redis.asyncio as aioredis
 
-from linksurf.helpers import get_env
+from linksurf.constants import ROBOTS_TTL
+from linksurf.helpers import get_domain_name, get_env, get_root_domain
 
 REDIS_URL = get_env("REDIS_URL", default="redis://localhost:6379")
+
+DOMAIN_CACHE_KEY_PREFIX = "frontier:domain:"
+ROBOTS_CACHE_KEY_PREFIX = "robots:"
+URL_SEEN_CACHE_KEY = "frontier:seen"
 
 _redis: aioredis.Redis | None = None
 
@@ -13,8 +20,62 @@ async def init_redis() -> None:
     _redis = aioredis.from_url(REDIS_URL)
 
 
-def get_redis() -> aioredis.Redis:
-    if _redis is None:
-        raise RuntimeError("Redis not connected.")
+async def get_robots(domain: str) -> str | None:
+    key = f"{ROBOTS_CACHE_KEY_PREFIX}{domain}"
 
-    return _redis
+    cached = await _redis.get(key)
+
+    return cached.decode() if cached else None
+
+
+async def save_robots(domain: str, text: str) -> None:
+    key = f"{ROBOTS_CACHE_KEY_PREFIX}{domain}"
+
+    await _redis.set(key, text, ex=ROBOTS_TTL)
+
+
+async def get_domain_stats(domain: str) -> dict[str, str]:
+    raw = await _redis.hgetall(f"{DOMAIN_CACHE_KEY_PREFIX}{domain}")
+
+    return {k.decode(): v.decode() for k, v in raw.items()}
+
+
+async def update_domain_stats(address: str, response_time: int, size: int) -> None:
+    domain = get_domain_name(address)
+    root_domain = get_root_domain(address)
+
+    key = f"{DOMAIN_CACHE_KEY_PREFIX}{domain}"
+    root_key = f"{DOMAIN_CACHE_KEY_PREFIX}{root_domain}"
+
+    data = await get_domain_stats(domain)
+
+    total = int(data.get("total_crawled_urls", 0))
+    old_avg_response = float(data.get("avg_response_time", 0))
+    old_avg_size = float(data.get("avg_page_size", 0))
+
+    new_total = total + 1
+    new_avg_response = (old_avg_response * total + response_time) / new_total
+    new_avg_size = (old_avg_size * total + size) / new_total
+
+    await _redis.hset(key, mapping={
+        "last_crawled_at": datetime.now(timezone.utc).isoformat(),
+        "avg_response_time": new_avg_response,
+        "avg_page_size": new_avg_size,
+        "total_crawled_urls": new_total,
+    })
+
+    await _redis.hincrby(root_key, "total_crawled_urls", 1)
+
+
+async def update_domain_last_crawled_at(address: str) -> None:
+    domain = get_domain_name(address)
+
+    key = f"{DOMAIN_CACHE_KEY_PREFIX}{domain}"
+
+    await _redis.hset(key, "last_crawled_at", datetime.now(timezone.utc).isoformat())
+
+
+async def mark_url_as_seen(url_hash: str) -> bool:
+    added = await _redis.sadd(URL_SEEN_CACHE_KEY, url_hash)
+
+    return added > 0

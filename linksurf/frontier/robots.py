@@ -3,10 +3,9 @@ from urllib.robotparser import RobotFileParser
 
 import requests
 
-from linksurf.frontier.cache import get_redis
+from linksurf.frontier.cache import get_robots, save_robots
 from linksurf.helpers import get_base_domain, get_domain_name
 
-ROBOTS_TTL = 60 * 60 * 24  # 24 hours
 
 
 class Robots:
@@ -30,18 +29,15 @@ class Robots:
     async def _get_parser(self, url: str) -> RobotFileParser:
         domain = get_base_domain(url)
         domain_name = get_domain_name(domain)
-        key = f"robots:{domain_name}"
 
-        redis = get_redis()
-
-        cached = await redis.get(key)
+        cached = await get_robots(domain_name)
 
         if cached is not None:
             return self._build_parser(cached.decode())
 
         text = await self._fetch(domain) or ""
 
-        await redis.set(key, text, ex=ROBOTS_TTL)
+        await save_robots(domain_name, text)
 
         return self._build_parser(text)
 

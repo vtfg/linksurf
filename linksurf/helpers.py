@@ -5,6 +5,11 @@ from enum import Enum
 from urllib.parse import urlsplit
 from uuid import UUID
 
+import tldextract
+
+# Disables suffix list request
+_tldextract = tldextract.TLDExtract(suffix_list_urls=())
+
 
 def get_env(name, cast=str, default: str | int = None):
     if name in os.environ:
@@ -23,6 +28,15 @@ def get_base_domain(url: str):
 def get_domain_name(url: str):
     parts = urlsplit(url)
     return parts.netloc
+
+
+def get_root_domain(url: str) -> str:
+    extracted = _tldextract(url)
+
+    if extracted.domain and extracted.suffix:
+        return f"{extracted.domain}.{extracted.suffix}"
+
+    return extracted.domain
 
 
 def hash_url(url: str) -> str:

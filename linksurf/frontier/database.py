@@ -11,6 +11,14 @@ from linksurf.models import HttpInfo, Link as LinkBase, Page
 MONGODB_URL = get_env("MONGODB_URL", default="mongodb://root:root@localhost:27017")
 
 
+class Domain(Document):
+    name: str
+    last_crawled_at: datetime
+
+    class Settings:
+        name = "domains"
+
+
 class URL(Document):
     address: Annotated[str, Indexed(unique=True)]
     hash: str
@@ -34,7 +42,21 @@ class Link(LinkBase, Document):
 async def init_database() -> None:
     client = AsyncMongoClient(MONGODB_URL)
 
-    await init_beanie(database=client.linksurf, document_models=[URL, Link])
+    await init_beanie(database=client.linksurf, document_models=[Domain, URL, Link])
+
+
+async def save_domain(name: str) -> None:
+    now = datetime.now(timezone.utc)
+
+    await Domain.find_one(Domain.name == name).upsert(
+        Set({
+            Domain.last_crawled_at: now
+        }),
+        on_insert=Domain(
+            name=name,
+            last_crawled_at=now,
+        ),
+    )
 
 
 async def save_url(
