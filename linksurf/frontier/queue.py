@@ -4,7 +4,7 @@ from datetime import datetime
 
 import aio_pika
 
-from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME, DOMAIN_CACHE_KEY_PREFIX
+from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
 from linksurf.frontier.cache import get_domain_stats, update_domain_last_crawled_at, mark_url_as_seen
 from linksurf.frontier.filter import is_url_allowed, normalize_url
 from linksurf.frontier.prioritizer import Prioritizer
@@ -60,21 +60,19 @@ class Queue:
         return True
 
     async def reserve_slot(self, url: str) -> float:
-        domain = get_domain_name(url)
+        domain_name = get_domain_name(url)
 
-        domain_key = f"{DOMAIN_CACHE_KEY_PREFIX}:{domain}"
+        stats = await get_domain_stats(domain_name)
 
-        stats = await get_domain_stats(domain)
-
-        last_crawled_at = stats.get("total_crawled_urls", 0)
+        last_crawled_at = stats.get("last_crawled_at")
 
         if last_crawled_at:
-            last_crawled_at = datetime.fromisoformat(last_crawled_at.decode()).timestamp()
+            last_crawled_at = datetime.fromisoformat(last_crawled_at).timestamp()
             next_at = last_crawled_at + CRAWL_DELAY
             delay = max(0.0, next_at - time.time())
         else:
             delay = 0.0
 
-        await update_domain_last_crawled_at(domain_key)
+        await update_domain_last_crawled_at(url)
 
         return delay
