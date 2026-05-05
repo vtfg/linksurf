@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
@@ -8,6 +9,7 @@ from fastapi import BackgroundTasks, FastAPI, Response, status
 load_dotenv()
 
 from linksurf.frontier.cache import init_redis, update_domain_stats
+from linksurf.frontier.proxy import ProxyPool
 from linksurf.frontier.database import Link as LinkDocument, init_database, save_domain, save_links, save_url
 from linksurf.frontier.queue import Queue
 from linksurf.frontier.storage import generate_presigned_upload_url, html_storage_url, init_storage
@@ -18,22 +20,29 @@ from linksurf.models import (
     ReserveSlotBody,
     ReserveSlotResponse,
     SeedBody,
-    SubmitResultBody, LinkType, SeedResponse,
+    SubmitResultBody,
+    LinkType,
+    SeedResponse,
 )
 
 HOST = get_env("FRONTIER_HOST", default="0.0.0.0")
 PORT = get_env("FRONTIER_PORT", cast=int, default=8000)
+PROXY_URLS = [url.strip() for url in get_env("PROXY_URLS").split(",")]
 
 queue: Queue | None = None
+proxy_pool: ProxyPool | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global queue
+    global queue, proxy_pool
 
     await init_database()
     await init_redis()
     await init_storage()
+
+    proxy_pool = ProxyPool()
+    await proxy_pool.setup(PROXY_URLS)
 
     queue = Queue()
     await queue.connect()
@@ -51,9 +60,12 @@ async def health():
 
 @app.post("/reserve", response_model=ReserveSlotResponse)
 async def reserve_slot(body: ReserveSlotBody):
-    delay_seconds = await queue.reserve_slot(body.url)
+    delay_seconds, proxy = await asyncio.gather(
+        queue.reserve_slot(body.url),
+        proxy_pool.get_next(),
+    )
 
-    return ReserveSlotResponse(delay_ms=int(delay_seconds * 1000))
+    return ReserveSlotResponse(delay_ms=int(delay_seconds * 1000), proxy=proxy)
 
 
 @app.get("/upload-url", response_model=PresignedUploadURLResponse)

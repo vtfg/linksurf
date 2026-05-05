@@ -86,6 +86,7 @@ services:
       MONGODB_URL: mongodb://root:root@mongodb:27017
       MINIO_ENDPOINT: http://minio:9000
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      PROXY_URLS: ${PROXY_URLS}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -113,8 +114,6 @@ services:
     environment:
       FRONTIER_URL: http://frontier:8000
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      PROXY_HTTP_URL: ${PROXY_HTTP_URL}
-      PROXY_HTTPS_URL: ${PROXY_HTTPS_URL}
       USER_AGENT: ${USER_AGENT}
     depends_on:
       frontier:

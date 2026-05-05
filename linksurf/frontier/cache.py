@@ -10,6 +10,7 @@ REDIS_URL = get_env("REDIS_URL", default="redis://localhost:6379")
 DOMAIN_CACHE_KEY_PREFIX = "frontier:domain:"
 ROBOTS_CACHE_KEY_PREFIX = "robots:"
 URL_SEEN_CACHE_KEY = "frontier:seen"
+PROXY_POOL_KEY = "proxy:pool"
 
 _redis: aioredis.Redis | None = None
 
@@ -79,3 +80,17 @@ async def mark_url_as_seen(url_hash: str) -> bool:
     added = await _redis.sadd(URL_SEEN_CACHE_KEY, url_hash)
 
     return added > 0
+
+
+async def seed_proxy_pool(proxy_urls: list[str]) -> None:
+    await _redis.delete(PROXY_POOL_KEY)
+    await _redis.rpush(PROXY_POOL_KEY, *proxy_urls)
+
+
+async def get_next_proxy() -> str:
+    proxy = await _redis.lmove(PROXY_POOL_KEY, PROXY_POOL_KEY, "LEFT", "RIGHT")
+
+    if proxy is None:
+        raise RuntimeError("Proxy pool is empty")
+
+    return proxy.decode()

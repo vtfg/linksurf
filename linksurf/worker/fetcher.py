@@ -1,31 +1,41 @@
 from urllib.parse import urlsplit
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from linksurf.helpers import get_env
 
-PROXY_HTTP = get_env("PROXY_HTTP_URL")
-PROXY_HTTPS = get_env("PROXY_HTTPS_URL")
 USER_AGENT = get_env("USER_AGENT")
 
 
 class Fetcher:
-    def fetch(self, url: str) -> requests.Response:
+    def __init__(self):
+        self._session = requests.Session()
+        adapter = HTTPAdapter(max_retries=0)
+
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
+
+    def fetch(self, url: str, proxy: str) -> requests.Response:
         split = urlsplit(url)
 
         if split.scheme in ["http", "https"]:
-            return self._http(url)
+            return self._http(url, proxy)
         else:
             raise NotImplementedError()
 
-    def _http(self, url: str) -> requests.Response:
+    def _http(self, url: str, proxy: str) -> requests.Response:
         headers = {
             "User-Agent": USER_AGENT,
         }
 
         proxies = {
-            "http": PROXY_HTTP,
-            "https": PROXY_HTTPS,
+            "http": proxy,
+            "https": proxy,
         }
 
-        return requests.get(url, headers=headers, proxies=proxies, allow_redirects=False)
+        response = self._session.get(url, headers=headers, proxies=proxies, allow_redirects=False)
+
+        self._session.cookies.clear()
+
+        return response

@@ -3,9 +3,8 @@ from urllib.robotparser import RobotFileParser
 
 import requests
 
-from linksurf.frontier.cache import get_robots, save_robots
+from linksurf.frontier.cache import get_next_proxy, get_robots, save_robots
 from linksurf.helpers import get_base_domain, get_domain_name
-
 
 
 class Robots:
@@ -17,8 +16,10 @@ class Robots:
         return parser
 
     async def _fetch(self, domain: str) -> str | None:
+        proxy = await get_next_proxy()
+
         response = await asyncio.to_thread(
-            requests.get, f"{domain}/robots.txt", allow_redirects=False
+            requests.get, f"{domain}/robots.txt", proxies={"http": proxy, "https": proxy}, allow_redirects=False
         )
 
         if response.status_code == 200 and "text/plain" in response.headers.get("Content-Type", "").lower():
@@ -33,7 +34,7 @@ class Robots:
         cached = await get_robots(domain_name)
 
         if cached is not None:
-            return self._build_parser(cached.decode())
+            return self._build_parser(cached)
 
         text = await self._fetch(domain) or ""
 

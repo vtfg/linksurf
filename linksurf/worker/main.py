@@ -38,10 +38,12 @@ def run() -> None:
             if slot.delay_ms > 0:
                 connection.sleep(slot.delay_ms / 1000)
 
-            response = fetcher.fetch(url)
+            print(f"Using proxy {slot.proxy}")
+
+            response = fetcher.fetch(url, slot.proxy)
 
             if response.status_code != 200:
-                print(f"Skipping {url}: status {response.status_code}")
+                print(f"Skipping {url} -> status {response.status_code}")
 
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -50,7 +52,7 @@ def run() -> None:
             content_type = response.headers.get("Content-Type", "")
 
             if "text/html" not in content_type.lower():
-                print(f"Skipping {url}: not HTML")
+                print(f"Skipping {url} -> not HTML")
 
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
@@ -86,7 +88,7 @@ def run() -> None:
 
             print(f"Done {url}")
         except Exception as e:
-            print(f"Error crawling {url}: {e}")
+            print(f"Error crawling {url} -> {e}")
 
             ch.basic_ack(delivery_tag=method.delivery_tag)
 

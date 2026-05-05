@@ -40,6 +40,7 @@ class ReserveSlotBody(BaseModel):
 
 class ReserveSlotResponse(BaseModel):
     delay_ms: int
+    proxy: str
 
 
 class PresignedUploadURLBody(BaseModel):
