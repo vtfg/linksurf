@@ -3,7 +3,7 @@ from urllib.robotparser import RobotFileParser
 
 import requests
 
-from linksurf.frontier.cache import get_next_proxy, get_robots, save_robots
+from linksurf.manager.cache import get_next_proxy, get_robots, save_robots
 from linksurf.helpers import get_base_domain, get_domain_name
 
 

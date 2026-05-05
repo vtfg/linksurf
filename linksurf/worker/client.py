@@ -9,13 +9,13 @@ from linksurf.models import (
     SubmitResultBody,
 )
 
-FRONTIER_URL = get_env("FRONTIER_URL", default="http://localhost:8000")
+MANAGER_URL = get_env("MANAGER_URL", default="http://localhost:8000")
 
 
-class FrontierClient:
+class ManagerClient:
     def reserve_slot(self, url: str) -> ReserveSlotResponse:
         response = requests.post(
-            f"{FRONTIER_URL}/reserve",
+            f"{MANAGER_URL}/reserve",
             json=ReserveSlotBody(url=url).model_dump(),
             timeout=10,
         )
@@ -25,7 +25,7 @@ class FrontierClient:
         return ReserveSlotResponse.model_validate(response.json())
 
     def get_presigned_upload_url(self, url: str) -> PresignedUploadURLResponse:
-        response = requests.get(f"{FRONTIER_URL}/upload-url", json={"url": url}, timeout=10)
+        response = requests.get(f"{MANAGER_URL}/upload-url", json={"url": url}, timeout=10)
 
         response.raise_for_status()
 
@@ -43,14 +43,14 @@ class FrontierClient:
 
     def submit_result(self, body: SubmitResultBody) -> None:
         requests.post(
-            f"{FRONTIER_URL}/result",
+            f"{MANAGER_URL}/result",
             json=body.model_dump(),
             timeout=30,
         )
 
     def seed(self, url: str) -> None:
         requests.post(
-            f"{FRONTIER_URL}/seed",
+            f"{MANAGER_URL}/seed",
             json=SeedBody(url=url).model_dump(),
             timeout=10,
         )

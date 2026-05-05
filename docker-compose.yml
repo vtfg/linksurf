@@ -76,10 +76,10 @@ services:
       timeout: 5s
       retries: 5
 
-  frontier:
+  manager:
     build: .
-    command: python -m linksurf.frontier.main
-    container_name: frontier
+    command: python -m linksurf.manager.main
+    container_name: manager
     restart: always
     environment:
       REDIS_URL: redis://redis:6379
@@ -112,11 +112,11 @@ services:
     command: python -m linksurf.worker.main
     restart: always
     environment:
-      FRONTIER_URL: http://frontier:8000
+      MANAGER_URL: http://manager:8000
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
-      frontier:
+      manager:
         condition: service_healthy
     deploy:
       replicas: 10

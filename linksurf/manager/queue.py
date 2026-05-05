@@ -5,10 +5,10 @@ from datetime import datetime
 import aio_pika
 
 from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
-from linksurf.frontier.cache import get_domain_stats, update_domain_last_crawled_at, mark_url_as_seen
-from linksurf.frontier.filter import is_url_allowed, normalize_url
-from linksurf.frontier.prioritizer import Prioritizer
-from linksurf.frontier.robots import Robots
+from linksurf.manager.cache import get_domain_stats, update_domain_last_crawled_at, mark_url_as_seen
+from linksurf.manager.filter import is_url_allowed, normalize_url
+from linksurf.manager.prioritizer import Prioritizer
+from linksurf.manager.robots import Robots
 from linksurf.helpers import get_domain_name, get_env, hash_url
 
 CRAWL_DELAY = 2

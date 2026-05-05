@@ -8,7 +8,7 @@ load_dotenv()
 from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
 from linksurf.helpers import get_env
 from linksurf.models import HttpInfo, SubmitResultBody
-from linksurf.worker.client import FrontierClient
+from linksurf.worker.client import ManagerClient
 from linksurf.worker.fetcher import Fetcher
 from linksurf.worker.parser import HTMLParser
 
@@ -16,7 +16,7 @@ RABBITMQ_URL = get_env("RABBITMQ_URL", default="amqp://guest:guest@localhost:567
 
 
 def run() -> None:
-    client = FrontierClient()
+    client = ManagerClient()
     fetcher = Fetcher()
 
     connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))

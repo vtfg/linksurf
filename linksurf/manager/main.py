@@ -8,11 +8,11 @@ from fastapi import BackgroundTasks, FastAPI, Response, status
 
 load_dotenv()
 
-from linksurf.frontier.cache import init_redis, update_domain_stats
-from linksurf.frontier.proxy import ProxyPool
-from linksurf.frontier.database import Link as LinkDocument, init_database, save_domain, save_links, save_url
-from linksurf.frontier.queue import Queue
-from linksurf.frontier.storage import generate_presigned_upload_url, html_storage_url, init_storage
+from linksurf.manager.cache import init_redis, update_domain_stats
+from linksurf.manager.proxy import ProxyPool
+from linksurf.manager.database import Link as LinkDocument, init_database, save_domain, save_links, save_url
+from linksurf.manager.queue import Queue
+from linksurf.manager.storage import generate_presigned_upload_url, html_storage_url, init_storage
 from linksurf.helpers import get_env, hash_url
 from linksurf.models import (
     PresignedUploadURLBody,
@@ -25,8 +25,8 @@ from linksurf.models import (
     SeedResponse,
 )
 
-HOST = get_env("FRONTIER_HOST", default="0.0.0.0")
-PORT = get_env("FRONTIER_PORT", cast=int, default=8000)
+HOST = get_env("MANAGER_HOST", default="0.0.0.0")
+PORT = get_env("MANAGER_PORT", cast=int, default=8000)
 PROXY_URLS = [url.strip() for url in get_env("PROXY_URLS").split(",")]
 
 queue: Queue | None = None

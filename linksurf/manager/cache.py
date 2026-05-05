@@ -7,9 +7,9 @@ from linksurf.helpers import get_domain_name, get_env, get_root_domain
 
 REDIS_URL = get_env("REDIS_URL", default="redis://localhost:6379")
 
-DOMAIN_CACHE_KEY_PREFIX = "frontier:domain:"
+DOMAIN_CACHE_KEY_PREFIX = "manager:domain:"
 ROBOTS_CACHE_KEY_PREFIX = "robots:"
-URL_SEEN_CACHE_KEY = "frontier:seen"
+URL_SEEN_CACHE_KEY = "manager:seen"
 PROXY_POOL_KEY = "proxy:pool"
 
 _redis: aioredis.Redis | None = None

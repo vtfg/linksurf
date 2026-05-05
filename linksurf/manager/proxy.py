@@ -2,7 +2,7 @@ import asyncio
 
 import requests
 
-from linksurf.frontier.cache import get_next_proxy, seed_proxy_pool
+from linksurf.manager.cache import get_next_proxy, seed_proxy_pool
 
 _HTTPBIN_URL = "http://httpbin.org/ip"
 

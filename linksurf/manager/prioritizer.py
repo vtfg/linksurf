@@ -2,7 +2,7 @@ import math
 from urllib.parse import parse_qsl, urlsplit
 
 from linksurf.constants import QUEUE_MAX_PRIORITY
-from linksurf.frontier.cache import get_domain_stats
+from linksurf.manager.cache import get_domain_stats
 from linksurf.helpers import get_domain_name, get_root_domain
 
 _MAX_RESPONSE_TIME_MS = 5000.0
