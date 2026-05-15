@@ -1,3 +1,5 @@
 .idea/
 .env
 reports/
+*.pyc
+__pycache__/

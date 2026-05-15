@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 import redis.asyncio as aioredis
 
@@ -41,7 +41,7 @@ async def get_domain_stats(domain: str) -> dict[str, str]:
     return {k.decode(): v.decode() for k, v in raw.items()}
 
 
-async def update_domain_stats(address: str, response_time: int, size: int) -> None:
+async def update_domain_stats(address: str, response_time: int, size: int, crawled_at: datetime) -> None:
     domain = get_domain_name(address)
     root_domain = get_root_domain(address)
 
@@ -59,21 +59,13 @@ async def update_domain_stats(address: str, response_time: int, size: int) -> No
     new_avg_size = (old_avg_size * total + size) / new_total
 
     await _redis.hset(key, mapping={
-        "last_crawled_at": datetime.now(timezone.utc).isoformat(),
+        "last_crawled_at": crawled_at.isoformat(),
         "avg_response_time": new_avg_response,
         "avg_page_size": new_avg_size,
         "total_crawled_urls": new_total,
     })
 
     await _redis.hincrby(root_key, "total_crawled_urls", 1)
-
-
-async def update_domain_last_crawled_at(address: str) -> None:
-    domain = get_domain_name(address)
-
-    key = f"{DOMAIN_CACHE_KEY_PREFIX}{domain}"
-
-    await _redis.hset(key, "last_crawled_at", datetime.now(timezone.utc).isoformat())
 
 
 async def mark_url_as_seen(url_hash: str) -> bool:

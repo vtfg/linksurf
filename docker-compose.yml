@@ -57,6 +57,8 @@ services:
 
   rabbitmq:
     image: rabbitmq:4-management
+    command: >
+      sh -c "rabbitmq-plugins enable rabbitmq_consistent_hash_exchange && rabbitmq-server"
     container_name: rabbitmq
     hostname: rabbitmq
     restart: always
@@ -107,19 +109,51 @@ services:
       retries: 3
       start_period: 5s
 
-  worker:
+  worker-0:
     build: .
     command: python -m linksurf.worker.main
+    container_name: worker-0
     restart: always
     environment:
+      WORKER_ID: 0
       MANAGER_URL: http://manager:8000
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
       manager:
         condition: service_healthy
-    deploy:
-      replicas: 10
+    networks:
+      - network
+
+  worker-1:
+    build: .
+    command: python -m linksurf.worker.main
+    container_name: worker-1
+    restart: always
+    environment:
+      WORKER_ID: 1
+      MANAGER_URL: http://manager:8000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      USER_AGENT: ${USER_AGENT}
+    depends_on:
+      manager:
+        condition: service_healthy
+    networks:
+      - network
+
+  worker-2:
+    build: .
+    command: python -m linksurf.worker.main
+    container_name: worker-2
+    restart: always
+    environment:
+      WORKER_ID: 2
+      MANAGER_URL: http://manager:8000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      USER_AGENT: ${USER_AGENT}
+    depends_on:
+      manager:
+        condition: service_healthy
     networks:
       - network
 

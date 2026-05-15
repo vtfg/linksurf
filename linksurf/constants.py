@@ -1,4 +1,5 @@
-QUEUE_NAME = "linksurf.urls"
+EXCHANGE_NAME = "linksurf.exchange"
+QUEUE_NAME_PREFIX = "linksurf.urls"
 QUEUE_MIN_PRIORITY = 0
 QUEUE_MAX_PRIORITY = 10
 

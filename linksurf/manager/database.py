@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Annotated
 
 from beanie import Document, Indexed, init_beanie
@@ -45,16 +45,14 @@ async def init_database() -> None:
     await init_beanie(database=client.linksurf, document_models=[Domain, URL, Link])
 
 
-async def save_domain(name: str) -> None:
-    now = datetime.now(timezone.utc)
-
+async def save_domain(name: str, last_crawled_at: datetime) -> None:
     await Domain.find_one(Domain.name == name).upsert(
         Set({
-            Domain.last_crawled_at: now
+            Domain.last_crawled_at: last_crawled_at
         }),
         on_insert=Domain(
             name=name,
-            last_crawled_at=now,
+            last_crawled_at=last_crawled_at,
         ),
     )
 
@@ -67,9 +65,8 @@ async def save_url(
         headers: dict[str, str],
         type: str,
         page: Page,
+        last_crawled_at: datetime,
 ) -> None:
-    now = datetime.now(timezone.utc)
-
     await URL.find_one(URL.address == address).upsert(
         Set({
             URL.hash: url_hash,
@@ -78,7 +75,7 @@ async def save_url(
             URL.type: type,
             URL.content_url: content_url,
             URL.page: page,
-            URL.last_crawled_at: now,
+            URL.last_crawled_at: last_crawled_at,
         }),
         on_insert=URL(
             address=address,
@@ -88,8 +85,8 @@ async def save_url(
             type=type,
             content_url=content_url,
             page=page,
-            first_crawled_at=now,
-            last_crawled_at=now,
+            first_crawled_at=last_crawled_at,
+            last_crawled_at=last_crawled_at,
         ),
     )
 

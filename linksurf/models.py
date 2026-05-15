@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel
@@ -34,12 +35,7 @@ class HttpInfo(BaseModel):
     response_time: int
 
 
-class ReserveSlotBody(BaseModel):
-    url: str
-
-
-class ReserveSlotResponse(BaseModel):
-    delay_ms: int
+class ProxyResponse(BaseModel):
     proxy: str
 
 
@@ -69,3 +65,4 @@ class SubmitResultBody(BaseModel):
     type: str
     page: Page
     links: list[Link]
+    crawled_at: datetime

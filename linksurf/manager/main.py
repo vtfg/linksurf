@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
@@ -17,8 +16,7 @@ from linksurf.helpers import get_env, hash_url
 from linksurf.models import (
     PresignedUploadURLBody,
     PresignedUploadURLResponse,
-    ReserveSlotBody,
-    ReserveSlotResponse,
+    ProxyResponse,
     SeedBody,
     SubmitResultBody,
     LinkType,
@@ -35,11 +33,15 @@ proxy_pool: ProxyPool | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("Initializing app")
+
     global queue, proxy_pool
 
     await init_database()
     await init_redis()
     await init_storage()
+
+    print("Initializing proxy pool")
 
     proxy_pool = ProxyPool()
     await proxy_pool.setup(PROXY_URLS)
@@ -58,14 +60,11 @@ async def health():
     return {"status": "ok"}
 
 
-@app.post("/reserve", response_model=ReserveSlotResponse)
-async def reserve_slot(body: ReserveSlotBody):
-    delay_seconds, proxy = await asyncio.gather(
-        queue.reserve_slot(body.url),
-        proxy_pool.get_next(),
-    )
+@app.get("/proxy", response_model=ProxyResponse)
+async def get_proxy():
+    proxy = await proxy_pool.get_next()
 
-    return ReserveSlotResponse(delay_ms=int(delay_seconds * 1000), proxy=proxy)
+    return ProxyResponse(proxy=proxy)
 
 
 @app.get("/upload-url", response_model=PresignedUploadURLResponse)
@@ -83,6 +82,8 @@ async def submit_result(body: SubmitResultBody, background_tasks: BackgroundTask
 
 
 async def _process_result(body: SubmitResultBody) -> None:
+    print(f"Processing result for {body.address}")
+
     url_hash = hash_url(body.address)
     content_url = html_storage_url(body.content_key)
     domain = urlsplit(body.address).hostname.removeprefix("www.")
@@ -95,11 +96,12 @@ async def _process_result(body: SubmitResultBody) -> None:
         headers=body.headers,
         type=body.type,
         page=body.page,
+        last_crawled_at=body.crawled_at,
     )
 
-    await save_domain(domain)
+    await save_domain(domain, body.crawled_at)
 
-    await update_domain_stats(body.address, body.http.response_time, body.http.size)
+    await update_domain_stats(body.address, body.http.response_time, body.http.size, body.crawled_at)
 
     links = [LinkDocument(**link.model_dump()) for link in body.links]
 
@@ -109,6 +111,8 @@ async def _process_result(body: SubmitResultBody) -> None:
         depth = 0 if link.type == LinkType.EXTERNAL else body.depth + 1
 
         await queue.push(link.target, depth)
+
+    print(f"Finished processing result for {body.address}")
 
 
 @app.post("/seed", status_code=200)

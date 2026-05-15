@@ -1,17 +1,13 @@
 import json
-import time
-from datetime import datetime
 
 import aio_pika
 
-from linksurf.constants import QUEUE_MAX_PRIORITY, QUEUE_NAME
-from linksurf.manager.cache import get_domain_stats, update_domain_last_crawled_at, mark_url_as_seen
+from linksurf.constants import EXCHANGE_NAME
+from linksurf.helpers import get_domain_name, get_env, hash_url
+from linksurf.manager.cache import mark_url_as_seen
 from linksurf.manager.filter import is_url_allowed, normalize_url
 from linksurf.manager.prioritizer import Prioritizer
 from linksurf.manager.robots import Robots
-from linksurf.helpers import get_domain_name, get_env, hash_url
-
-CRAWL_DELAY = 2
 
 RABBITMQ_URL = get_env("RABBITMQ_URL", default="amqp://guest:guest@localhost:5672/")
 
@@ -21,24 +17,30 @@ class Queue:
         self.robots = Robots()
         self.prioritizer = Prioritizer()
         self._channel: aio_pika.abc.AbstractChannel | None = None
+        self._exchange: aio_pika.abc.AbstractExchange | None = None
 
     async def connect(self) -> None:
         connection = await aio_pika.connect_robust(RABBITMQ_URL)
 
         self._channel = await connection.channel()
 
-        await self._channel.declare_queue(QUEUE_NAME, durable=True, arguments={"x-max-priority": QUEUE_MAX_PRIORITY})
+        self._exchange = await self._channel.declare_exchange(
+            EXCHANGE_NAME,
+            type="x-consistent-hash",
+            durable=True,
+        )
 
     async def _publish(self, url: str, depth: int) -> None:
         priority = await self.prioritizer.score(url)
+        domain = get_domain_name(url)
 
-        await self._channel.default_exchange.publish(
+        await self._exchange.publish(
             aio_pika.Message(
                 body=json.dumps({"url": url, "depth": depth}).encode(),
                 delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                 priority=priority,
             ),
-            routing_key=QUEUE_NAME,
+            routing_key=domain,
         )
 
     async def push(self, url: str, depth: int) -> bool:
@@ -58,21 +60,3 @@ class Queue:
         await self._publish(url, depth)
 
         return True
-
-    async def reserve_slot(self, url: str) -> float:
-        domain_name = get_domain_name(url)
-
-        stats = await get_domain_stats(domain_name)
-
-        last_crawled_at = stats.get("last_crawled_at")
-
-        if last_crawled_at:
-            last_crawled_at = datetime.fromisoformat(last_crawled_at).timestamp()
-            next_at = last_crawled_at + CRAWL_DELAY
-            delay = max(0.0, next_at - time.time())
-        else:
-            delay = 0.0
-
-        await update_domain_last_crawled_at(url)
-
-        return delay

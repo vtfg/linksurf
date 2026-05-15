@@ -3,9 +3,8 @@ import requests
 from linksurf.helpers import get_env
 from linksurf.models import (
     PresignedUploadURLResponse,
+    ProxyResponse,
     SeedBody,
-    ReserveSlotBody,
-    ReserveSlotResponse,
     SubmitResultBody,
 )
 
@@ -13,16 +12,12 @@ MANAGER_URL = get_env("MANAGER_URL", default="http://localhost:8000")
 
 
 class ManagerClient:
-    def reserve_slot(self, url: str) -> ReserveSlotResponse:
-        response = requests.post(
-            f"{MANAGER_URL}/reserve",
-            json=ReserveSlotBody(url=url).model_dump(),
-            timeout=10,
-        )
+    def get_proxy(self) -> str:
+        response = requests.get(f"{MANAGER_URL}/proxy", timeout=10)
 
         response.raise_for_status()
 
-        return ReserveSlotResponse.model_validate(response.json())
+        return ProxyResponse.model_validate(response.json()).proxy
 
     def get_presigned_upload_url(self, url: str) -> PresignedUploadURLResponse:
         response = requests.get(f"{MANAGER_URL}/upload-url", json={"url": url}, timeout=10)
@@ -44,7 +39,8 @@ class ManagerClient:
     def submit_result(self, body: SubmitResultBody) -> None:
         requests.post(
             f"{MANAGER_URL}/result",
-            json=body.model_dump(),
+            data=body.model_dump_json(),
+            headers={"Content-Type": "application/json"},
             timeout=30,
         )
 
