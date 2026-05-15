@@ -9,16 +9,17 @@ from linksurf.models import Link, LinkType, MetaTag, Page
 class HTMLParser:
     @staticmethod
     def parse(page_url: str, html: str) -> tuple[Page, list[Link]]:
-        metadata = MetadataExtractor.extract(html)
-        links = LinkExtractor.extract(page_url, html)
+        soup = BeautifulSoup(html, "html.parser")
+
+        metadata = MetadataExtractor.extract(soup)
+        links = LinkExtractor.extract(page_url, soup)
 
         return metadata, links
 
 
 class LinkExtractor:
     @staticmethod
-    def extract(page_url: str, html: str) -> list[Link]:
-        soup = BeautifulSoup(html, "html.parser")
+    def extract(page_url: str, soup: BeautifulSoup) -> list[Link]:
         links = []
 
         for a in soup.find_all("a"):
@@ -55,9 +56,7 @@ class LinkExtractor:
 
 class MetadataExtractor:
     @staticmethod
-    def extract(html: str) -> Page:
-        soup = BeautifulSoup(html, "html.parser")
-
+    def extract(soup: BeautifulSoup) -> Page:
         html_tag = soup.find("html")
         lang = strip(html_tag.get("lang") if html_tag else None)
 

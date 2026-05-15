@@ -39,7 +39,7 @@ class ProxyResponse(BaseModel):
     proxy: str
 
 
-class PresignedUploadURLBody(BaseModel):
+class PresignedUploadURLQuery(BaseModel):
     url: str
 
 

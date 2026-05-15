@@ -1,10 +1,9 @@
-import asyncio
 from urllib.robotparser import RobotFileParser
 
-import requests
+import httpx
 
-from linksurf.manager.cache import get_next_proxy, get_robots, save_robots
 from linksurf.helpers import get_base_domain, get_domain_name
+from linksurf.manager.cache import get_next_proxy, get_robots, save_robots
 
 
 class Robots:
@@ -18,11 +17,15 @@ class Robots:
     async def _fetch(self, domain: str) -> str | None:
         proxy = await get_next_proxy()
 
-        response = await asyncio.to_thread(
-            requests.get, f"{domain}/robots.txt", proxies={"http": proxy, "https": proxy}, allow_redirects=False
-        )
+        mounts = {
+            "http://": httpx.AsyncHTTPTransport(proxy=proxy, retries=0),
+            "https://": httpx.AsyncHTTPTransport(proxy=proxy, retries=0),
+        }
 
-        if response.status_code == 200 and "text/plain" in response.headers.get("Content-Type", "").lower():
+        async with httpx.AsyncClient(mounts=mounts, follow_redirects=False) as client:
+            response = await client.get(f"{domain}/robots.txt", timeout=10)
+
+        if response.status_code == 200 and "text/plain" in response.headers.get("content-type", "").lower():
             return response.text
 
         return None

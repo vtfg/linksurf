@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
+from typing import Annotated
 from urllib.parse import urlsplit
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, Response, status
+from fastapi import BackgroundTasks, FastAPI, Query, Response, status
 
 load_dotenv()
 
@@ -14,7 +15,7 @@ from linksurf.manager.queue import Queue
 from linksurf.manager.storage import generate_presigned_upload_url, html_storage_url, init_storage
 from linksurf.helpers import get_env, hash_url
 from linksurf.models import (
-    PresignedUploadURLBody,
+    PresignedUploadURLQuery,
     PresignedUploadURLResponse,
     ProxyResponse,
     SeedBody,
@@ -68,8 +69,8 @@ async def get_proxy():
 
 
 @app.get("/upload-url", response_model=PresignedUploadURLResponse)
-async def presigned_upload(body: PresignedUploadURLBody):
-    url_hash = hash_url(body.url)
+async def presigned_upload(query: Annotated[PresignedUploadURLQuery, Query()]):
+    url_hash = hash_url(query.url)
 
     presigned_url, key = await generate_presigned_upload_url(url_hash)
 
