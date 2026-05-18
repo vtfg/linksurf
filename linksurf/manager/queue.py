@@ -1,11 +1,13 @@
 import json
+from urllib.parse import urlsplit
 
 import aio_pika
 
 from linksurf.constants import EXCHANGE_NAME
 from linksurf.helpers import get_domain_name, get_env, hash_url
 from linksurf.manager.cache import mark_url_as_seen
-from linksurf.manager.filter import is_url_allowed, normalize_url
+from linksurf.manager.filter import is_brazilian_tld, is_url_allowed, normalize_url
+from linksurf.manager.geoip import is_brazilian_ip
 from linksurf.manager.prioritizer import Prioritizer
 from linksurf.manager.robots import Robots
 
@@ -48,6 +50,12 @@ class Queue:
 
         if not is_url_allowed(url):
             return False
+
+        if not is_brazilian_tld(url):
+            hostname = urlsplit(url).hostname
+
+            if not hostname or not await is_brazilian_ip(hostname):
+                return False
 
         if not await self.robots.can_fetch(url):
             return False

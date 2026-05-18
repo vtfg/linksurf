@@ -85,6 +85,13 @@ async def submit_result(body: SubmitResultBody, background_tasks: BackgroundTask
 async def _process_result(body: SubmitResultBody) -> None:
     print(f"Processing result for {body.address}")
 
+    page_lang = body.page.lang
+
+    if page_lang and not page_lang.lower().startswith("pt"):
+        print(f"Rejecting non-Portuguese page: {body.address} (lang={page_lang})")
+
+        return
+
     url_hash = hash_url(body.address)
     content_url = html_storage_url(body.content_key)
     domain = urlsplit(body.address).hostname.removeprefix("www.")

@@ -157,6 +157,22 @@ services:
     networks:
       - network
 
+  worker-3:
+    build: .
+    command: python -m linksurf.worker.main
+    container_name: worker-3
+    restart: always
+    environment:
+      WORKER_ID: 3
+      MANAGER_URL: http://manager:8000
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      USER_AGENT: ${USER_AGENT}
+    depends_on:
+      manager:
+        condition: service_healthy
+    networks:
+      - network
+
 volumes:
   mongodb:
   redis:

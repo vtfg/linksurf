@@ -9,8 +9,11 @@ REDIS_URL = get_env("REDIS_URL", default="redis://localhost:6379")
 
 DOMAIN_CACHE_KEY_PREFIX = "manager:domain:"
 ROBOTS_CACHE_KEY_PREFIX = "robots:"
+GEOIP_CACHE_KEY_PREFIX = "geoip:"
 URL_SEEN_CACHE_KEY = "manager:seen"
 PROXY_POOL_KEY = "proxy:pool"
+
+GEOIP_TTL = 86400 * 7  # 7 days
 
 _redis: aioredis.Redis | None = None
 
@@ -66,6 +69,20 @@ async def update_domain_stats(address: str, response_time: int, size: int, crawl
     })
 
     await _redis.hincrby(root_key, "total_crawled_urls", 1)
+
+
+async def get_geoip_cache(hostname: str) -> str | None:
+    key = f"{GEOIP_CACHE_KEY_PREFIX}{hostname}"
+
+    cached = await _redis.get(key)
+
+    return cached.decode() if cached else None
+
+
+async def set_geoip_cache(hostname: str, country_code: str) -> None:
+    key = f"{GEOIP_CACHE_KEY_PREFIX}{hostname}"
+
+    await _redis.set(key, country_code, ex=GEOIP_TTL)
 
 
 async def mark_url_as_seen(url_hash: str) -> bool:

@@ -87,6 +87,12 @@ _MAX_URL_LENGTH = 2048
 _MAX_PATH_DEPTH = 10
 
 
+def is_brazilian_tld(url: str) -> bool:
+    hostname = urlsplit(url).hostname
+
+    return hostname is not None and hostname.endswith(".br")
+
+
 def normalize_url(url: str) -> str:
     parsed = urlsplit(url)
 
