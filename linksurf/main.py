@@ -1,5 +1,5 @@
-from linksurf import Linksurf
-from linksurf.broker.base import Broker
+from linksurf.application import Linksurf
+from linksurf.broker.rabbitmq import RabbitMQBroker
 from linksurf.common.fixture import COUNTRIES
 from linksurf.common.models import URL
 from linksurf.components.frontier.filters import (
@@ -31,9 +31,9 @@ if __name__ == "__main__":
         fetcher=Fetcher(),
     )
 
-    broker = Broker()
+    broker = RabbitMQBroker()
 
-    linksurf = Linksurf(services, broker)
+    linksurf = Linksurf(services=services, broker=broker)
 
     # linksurf.config = Config(
     #     user_agent="..."

@@ -3,8 +3,8 @@ from linksurf.components.base import Component
 
 
 class Parser(Component):
-    CONSUMES_FROM = "files"
-    PRODUCES_TO = ["links", "contents"]
+    CONSUMES_FROM = "page.parse"
+    PRODUCES_TO = ["url.process", "page.store"]
 
     def __init__(self):
         super().__init__()

@@ -5,8 +5,8 @@ from linksurf.services import Services, Fetcher
 
 
 class Downloader(Component[HTTPResponse]):
-    CONSUMES_FROM = "urls"
-    PRODUCES_TO = "files"
+    CONSUMES_FROM = "url.fetch"
+    PRODUCES_TO = "page.parse"
 
     fetcher: Fetcher
 

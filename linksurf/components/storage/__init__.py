@@ -4,7 +4,7 @@ from linksurf.components.base import Component, Filter
 
 
 class Storage(Component):
-    CONSUMES_FROM = "contents"
+    CONSUMES_FROM = "page.store"
 
     def __init__(self):
         super().__init__()

@@ -25,13 +25,6 @@ class Linksurf:
         for component in [self.frontier, self.downloader, self.parser, self.storage]:
             component.on_start(self.services)
 
-        # self.broker.pipeline([
-        #     ("urls", self.downloader.download),
-        #     ("files", self.parser.parse),
-        #     ("contents", self.storage.store),
-        #     ("links", self.manager.enqueue),
-        # ])
-
         # Order shouldn't matter. What matters is the component's CONSUMES_FROM and PRODUCES_TO.
         self.broker.pipeline([
             self.frontier,
@@ -41,6 +34,6 @@ class Linksurf:
         ])
 
         for url in seed:
-            self.broker.seed("links", url)
+            self.broker.seed("url.process", url)
 
         self.broker.loop()

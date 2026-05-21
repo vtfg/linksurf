@@ -1,7 +1,7 @@
 from typing import Any
 
-from linksurf.common.types import Response
 from linksurf.common.models import URL
+from linksurf.common.types import Response
 from linksurf.components.base import Component
 from linksurf.components.frontier.filters import Filter
 from linksurf.components.frontier.middlewares import Middleware
@@ -10,8 +10,8 @@ from linksurf.services import Services
 
 
 class Frontier(Component[tuple[URL, int]]):
-    CONSUMES_FROM = "links"
-    PRODUCES_TO = "urls"
+    CONSUMES_FROM = "url.process"
+    PRODUCES_TO = "url.fetch"
 
     def __init__(self):
         super().__init__()
