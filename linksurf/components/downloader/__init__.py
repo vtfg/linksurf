@@ -1,10 +1,11 @@
-from linksurf.common.models import URL, HTTPResponse, HTTPRequest
+from linksurf.common.models import HTTPRequest, HTTPResponse, URL
+from linksurf.common.payload import Payload
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
 from linksurf.services import Services, Fetcher
 
 
-class Downloader(Component[HTTPResponse]):
+class Downloader(Component[Payload]):
     CONSUMES_FROM = "url.fetch"
     PRODUCES_TO = "page.parse"
 
@@ -16,11 +17,13 @@ class Downloader(Component[HTTPResponse]):
     def on_start(self, services: Services):
         self.fetcher = services.fetcher
 
-    def process(self, url: URL) -> Response[HTTPResponse]:
+    def run(self, payload: Payload) -> Response[Payload]:
         request = HTTPRequest()
 
-        if url.scheme in ["http", "https"]:
-            return Response(self.fetcher.http(request), None)
+        if payload.url.scheme in ["http", "https"]:
+            http_response = self.fetcher.http(request)
+
+            return Response(payload, None)
 
         return Response(None, Error("Schema not supported", retriable=False))
 

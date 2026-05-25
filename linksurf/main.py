@@ -2,17 +2,9 @@ from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
 from linksurf.common.fixture import COUNTRIES
 from linksurf.common.models import URL
-from linksurf.components.frontier.filters import (
-    URLSeenFilter,
-    CountryFilter,
-    URLExtensionFilter,
-    RobotsExclusionFilter,
-)
+from linksurf.components.frontier.filters import URLSeenFilter, CountryFilter, URLExtensionFilter, RobotsExclusionFilter
 from linksurf.components.frontier.middlewares import (
-    DNSMiddleware,
-    CountryMiddleware,
-    RobotsExclusionMiddleware,
-    URLNormalizationMiddleware
+    URLNormalizationMiddleware, DNSMiddleware, CountryMiddleware, RobotsExclusionMiddleware
 )
 from linksurf.components.storage.filters import ContentSeenFilter
 from linksurf.services import Services, Database, BlobStorage, Cache, Fetcher
@@ -57,8 +49,16 @@ if __name__ == "__main__":
     linksurf.frontier.filters = [
         URLSeenFilter(),
         CountryFilter(allowed=[COUNTRIES["BRA"]]),
-        URLExtensionFilter(allowed=["html", "pdf"]),
+        URLExtensionFilter(allowed=["html", "pdf"]), # [Maybe this should be a Downloader middleware/filter that sends a HEAD request]
         RobotsExclusionFilter(),
+    ]
+
+    linksurf.downloader.middlewares = [
+        # ContentTypeMiddleware()
+    ]
+
+    linksurf.downloader.filters = [
+        # ContentTypeFilter(allowed=[MimeTypes.HTML, MimeTypes.PDF]),
     ]
 
     linksurf.storage.filters = [

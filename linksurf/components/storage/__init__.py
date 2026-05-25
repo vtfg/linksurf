@@ -1,9 +1,9 @@
-from typing import Any
-
+from linksurf.common.payload import Payload
+from linksurf.common.types import Response
 from linksurf.components.base import Component, Filter
 
 
-class Storage(Component):
+class Storage(Component[Payload]):
     CONSUMES_FROM = "page.store"
 
     def __init__(self):
@@ -11,5 +11,5 @@ class Storage(Component):
 
         self.filters: list[Filter] = []
 
-    def process(self, data: Any) -> None:
+    def run(self, payload: Payload) -> Response[Payload]:
         pass

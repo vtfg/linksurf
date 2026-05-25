@@ -1,58 +1,30 @@
-from typing import Any
-
-from linksurf.common.models import URL
+from linksurf.common.payload import Payload
 from linksurf.common.types import Response
 from linksurf.components.base import Component
-from linksurf.components.frontier.filters import Filter
-from linksurf.components.frontier.middlewares import Middleware
 from linksurf.components.frontier.prioritizer import Prioritizer, MultiFactorPrioritizer
 from linksurf.services import Services
 
 
-class Frontier(Component[tuple[URL, int]]):
+class Frontier(Component[Payload]):
     CONSUMES_FROM = "url.process"
     PRODUCES_TO = "url.fetch"
 
     def __init__(self):
         super().__init__()
 
-        self.middlewares: list[Middleware] = []
-        self.filters: list[Filter] = []
-
         self.prioritizer: Prioritizer = MultiFactorPrioritizer()
 
     def on_start(self, services: Services):
+        super().on_start(services)
+
         self.prioritizer.on_start(services)
 
-        for _middleware in self.middlewares:
-            _middleware.on_start(services)
+    def run(self, payload: Payload) -> Response[Payload]:
+        priority_response = self.prioritizer.execute(payload)
 
-        for _filter in self.filters:
-            _filter.on_start(services)
+        if priority_response.error is not None:
+            return Response(None, priority_response.error)
 
-    def process(self, url: URL) -> Response[tuple[URL, int]]:
-        metadata: dict[str, Any] = {"url": url}
+        payload.priority = priority_response.data
 
-        for _middleware in self.middlewares:
-            response = _middleware.execute(metadata)
-
-            if response.error is not None:
-                continue
-
-            if response.data is None:
-                continue
-
-            metadata.update(response.data)
-
-        for _filter in self.filters:
-            response = _filter.execute(metadata)
-
-            if response.error is not None:
-                return Response(None, response.error)
-
-            if not response.data:
-                continue
-
-        prioritizer_response = self.prioritizer.execute(metadata)
-
-        return Response((url, prioritizer_response.data), None)
+        return Response(payload, None)

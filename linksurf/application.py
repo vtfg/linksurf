@@ -1,5 +1,6 @@
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL
+from linksurf.common.payload import Payload
 from linksurf.components.downloader import Downloader
 from linksurf.components.frontier import Frontier
 from linksurf.components.parser import Parser
@@ -34,6 +35,6 @@ class Linksurf:
         ])
 
         for url in seed:
-            self.broker.seed("url.process", url)
+            self.broker.seed(Frontier.CONSUMES_FROM, Payload(url=url))
 
         self.broker.loop()

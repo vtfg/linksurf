@@ -10,7 +10,7 @@ class URL:
         split = urlsplit(address)
 
         self.scheme = split.scheme
-        self.netloc = split.netloc
+        self.domain = split.netloc
         self.path = split.path
         self.query = split.query
         self.fragment = split.fragment

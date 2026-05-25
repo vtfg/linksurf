@@ -1,6 +1,5 @@
-from typing import Any
-
 from linksurf.common.fixture import COUNTRIES
+from linksurf.common.payload import Payload
 from linksurf.components.base import Middleware, MiddlewareResponse
 
 
@@ -9,7 +8,7 @@ class DNSMiddleware(Middleware):
     Queries the website's DNS and checks availability, IP, etc.
     """
 
-    def execute(self, metadata: dict[str, Any]) -> MiddlewareResponse:
+    def execute(self, payload: Payload) -> MiddlewareResponse:
         pass
 
 
@@ -18,28 +17,32 @@ class CountryMiddleware(Middleware):
     Computes the website's guessed country.
     """
 
-    def execute(self, metadata) -> MiddlewareResponse:
-        _ = metadata.get("domain")
-        _ = metadata.get("ip")
+    def execute(self, payload: Payload) -> MiddlewareResponse:
+        _ = payload.url.domain
+        _ = payload.get_metadata("ip")
 
         # Check domain TLD, fetch server IP location, etc.
 
-        return MiddlewareResponse({"country": COUNTRIES["BRA"]}, None)
+        payload.add_metadata("country", COUNTRIES["bra"])
+
+        return MiddlewareResponse(payload, None)
 
 
 class RobotsExclusionMiddleware(Middleware):
-    def execute(self, metadata) -> MiddlewareResponse:
-        _ = metadata.get("domain")
+    def execute(self, payload: Payload) -> MiddlewareResponse:
+        _ = payload.url.domain
 
         # Fetches robots.txt for domain, checks cache first
 
-        return MiddlewareResponse({"robots": "..."}, None)
+        payload.add_metadata({"robots": "..."})
+
+        return MiddlewareResponse(payload, None)
 
 
 class URLNormalizationMiddleware(Middleware):
-    def execute(self, metadata) -> MiddlewareResponse:
-        url = metadata.get("url")
+    def execute(self, payload: Payload) -> MiddlewareResponse:
+        url = payload.url.domain
 
         # Normalizes the URL based on several factors (excludes UTMs, sorts query parameters, etc.)
 
-        return MiddlewareResponse({"url": url}, None)
+        return MiddlewareResponse(payload, None)

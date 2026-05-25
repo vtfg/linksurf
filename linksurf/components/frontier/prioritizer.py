@@ -1,3 +1,4 @@
+from linksurf.common.payload import Payload
 from linksurf.components.base import Prioritizer, PrioritizerResponse
 from linksurf.services import Database, Cache, Services
 
@@ -15,5 +16,5 @@ class MultiFactorPrioritizer(Prioritizer):
         self.database = services.database
         self.cache = services.cache
 
-    def execute(self, metadata) -> PrioritizerResponse:
+    def execute(self, payload: Payload) -> PrioritizerResponse:
         return PrioritizerResponse(0, None)

@@ -1,4 +1,4 @@
-import pickle
+import json
 from typing import Any, Callable
 
 import pika
@@ -6,6 +6,7 @@ import pika.spec
 from pika.adapters.blocking_connection import BlockingChannel
 
 from linksurf.broker.base import Broker
+from linksurf.common.payload import Payload
 from linksurf.components.base import Component
 
 EXCHANGE = "linksurf.exchange"
@@ -71,7 +72,7 @@ class RabbitMQBroker(Broker):
                 _: pika.spec.BasicProperties,
                 body: bytes,
         ):
-            data = pickle.loads(body)
+            data = Payload.from_dict(json.loads(body))
 
             handler(data)
 
@@ -83,7 +84,7 @@ class RabbitMQBroker(Broker):
         self.channel.basic_publish(
             exchange=EXCHANGE,
             routing_key=topic,
-            body=pickle.dumps(data),
+            body=json.dumps(data.to_dict()).encode(),
             properties=pika.BasicProperties(delivery_mode=pika.DeliveryMode.Persistent),
         )
 
