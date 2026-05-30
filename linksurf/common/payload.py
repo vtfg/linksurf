@@ -1,17 +1,29 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
-from linksurf.common.models import URL
+from linksurf.common.models import URL, HTTPRequest, HTTPResponseSummary, Content
 
 
 class Payload:
-    def __init__(self, url: URL, priority: int = 0, metadata: dict[str, Any] = None):
+    def __init__(
+            self,
+            url: URL,
+            priority: int = 0,
+            content: Content | None = None,
+            request: HTTPRequest | None = None,
+            response: HTTPResponseSummary | None = None,
+            metadata: dict[str, Any] | None = None,
+    ):
         if metadata is None:
             metadata = {}
 
         self.url = url
         self.priority = priority
+        self.content = content
+        self.request = request
+        self.response = response
         self._metadata = metadata
 
     @property
@@ -28,13 +40,23 @@ class Payload:
         return {
             "url": self.url.address,
             "priority": self.priority,
+            "content": asdict(self.content) if self.content else None,
+            "request": asdict(self.request) if self.request else None,
+            "response": asdict(self.response) if self.response else None,
             "metadata": self._metadata,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Payload:
+        content = data.get("content")
+        request = data.get("request")
+        response = data.get("response")
+
         return cls(
-            url=URL(data.get("url")),
+            url=URL(data["url"]),
             priority=data.get("priority", 0),
+            content=Content(**content) if content else None,
+            request=HTTPRequest(**request) if request else None,
+            response=HTTPResponseSummary(**response) if response else None,
             metadata=data.get("metadata", {}),
         )

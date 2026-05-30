@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from enum import Enum
 from urllib.parse import urlsplit
 
+from linksurf.utils.url import hash_url
+
 
 class URL:
     def __init__(self, address: str):
@@ -14,6 +16,10 @@ class URL:
         self.path = split.path
         self.query = split.query
         self.fragment = split.fragment
+
+    @property
+    def hash(self):
+        return hash_url(self.address)
 
 
 class LinkType(str, Enum):
@@ -30,18 +36,61 @@ class Link:
     rel: str
 
 
+@dataclass(frozen=True)
 class HTTPRequest:
-    pass
+    url: str
+    method: str = "GET"
+    proxy: str | None = None
+    timeout: float = 30.0
+    follow_redirects: bool = False
 
 
+@dataclass(frozen=True)
+class HTTPResponseSummary:
+    url: str
+    status_code: int
+    headers: dict[str, str]
+    elapsed_ms: float
+    redirects: list[str]
+
+    @property
+    def ok(self) -> bool:
+        return 200 <= self.status_code < 300
+
+
+@dataclass(frozen=True)
 class HTTPResponse:
-    pass
+    url: str
+    status_code: int
+    headers: dict[str, str]
+    body: bytes
+    encoding: str
+    elapsed_ms: float
+    redirects: list[str]
+    request: HTTPRequest
+
+    @property
+    def ok(self) -> bool:
+        return 200 <= self.status_code < 300
+
+    @property
+    def text(self) -> str:
+        return self.body.decode(self.encoding or "utf-8", errors="replace")
+
+    def to_summary(self) -> HTTPResponseSummary:
+        return HTTPResponseSummary(
+            url=self.url,
+            status_code=self.status_code,
+            headers=self.headers,
+            elapsed_ms=self.elapsed_ms,
+            redirects=self.redirects,
+        )
 
 
+@dataclass
 class Content:
-    def __init__(self):
-        self.raw = None
-        self.type = None
+    key: str
+    type: str
 
 
 class Country:

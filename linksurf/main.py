@@ -7,7 +7,9 @@ from linksurf.components.frontier.middlewares import (
     URLNormalizationMiddleware, DNSMiddleware, CountryMiddleware, RobotsExclusionMiddleware
 )
 from linksurf.components.storage.filters import ContentSeenFilter
-from linksurf.services import Services, Database, BlobStorage, Cache, Fetcher
+from linksurf.services import Services, Database, Cache
+from linksurf.services.blob import S3BlobStorage
+from linksurf.services.fetcher import RequestsFetcher
 
 if __name__ == "__main__":
     seed = [
@@ -18,9 +20,14 @@ if __name__ == "__main__":
 
     services = Services(
         database=Database(),
-        blob_storage=BlobStorage(),
+        blob_storage=S3BlobStorage(
+            bucket="linksurf",
+            endpoint_url="http://localhost:9000",
+            access_key="minioadmin",
+            secret_key="minioadmin",
+        ),
         cache=Cache(),
-        fetcher=Fetcher(),
+        fetcher=RequestsFetcher(),
     )
 
     broker = RabbitMQBroker()
@@ -40,17 +47,17 @@ if __name__ == "__main__":
     ]
 
     linksurf.frontier.middlewares = [
-        DNSMiddleware(),
-        CountryMiddleware(),
-        RobotsExclusionMiddleware(),
-        URLNormalizationMiddleware(),
+        # DNSMiddleware(),
+        # CountryMiddleware(),
+        # RobotsExclusionMiddleware(),
+        # URLNormalizationMiddleware(),
     ]
 
     linksurf.frontier.filters = [
-        URLSeenFilter(),
-        CountryFilter(allowed=[COUNTRIES["BRA"]]),
-        URLExtensionFilter(allowed=["html", "pdf"]), # [Maybe this should be a Downloader middleware/filter that sends a HEAD request]
-        RobotsExclusionFilter(),
+        # URLSeenFilter(),
+        # CountryFilter(allowed=[COUNTRIES["BRA"]]),
+        # URLExtensionFilter(allowed=["html", "pdf"]), #? [Maybe this should be a Downloader middleware+filter that sends a HEAD request]
+        # RobotsExclusionFilter(),
     ]
 
     linksurf.downloader.middlewares = [
@@ -62,7 +69,7 @@ if __name__ == "__main__":
     ]
 
     linksurf.storage.filters = [
-        ContentSeenFilter(),
+        # ContentSeenFilter(),
     ]
 
     linksurf.run(seed)
