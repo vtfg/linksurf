@@ -32,8 +32,8 @@ class Link:
     source: str
     target: str
     type: LinkType
-    text: str
-    rel: str
+    text: str | None
+    rel: str | None
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,7 @@ class HTTPResponseSummary:
     url: str
     status_code: int
     headers: dict[str, str]
+    encoding: str
     elapsed_ms: float
     redirects: list[str]
 
@@ -82,6 +83,7 @@ class HTTPResponse:
             url=self.url,
             status_code=self.status_code,
             headers=self.headers,
+            encoding=self.encoding,
             elapsed_ms=self.elapsed_ms,
             redirects=self.redirects,
         )
