@@ -44,6 +44,19 @@ class RabbitMQBroker(Broker):
                 result = _component.process(data)
 
                 if result is None or result.error is not None or result.data is None:
+                    print(f"Result from {_component.__class__.__name__} returned None or Error")
+
+                    if result.error:
+                        print(f"{result.error.message=} {result.error.retriable=}")
+
+                    return
+
+                if isinstance(result.data, dict):
+                    for topic, payloads in result.data.items():
+                        items = payloads if isinstance(payloads, list) else [payloads]
+                        for payload in items:
+                            self.publish(topic, payload)
+
                     return
 
                 produces_to = getattr(_component, "PRODUCES_TO", None)
