@@ -11,10 +11,10 @@ logger = logging.getLogger(__name__)
 class BlobStorage(Service):
     NAME = "blob_storage"
 
-    def upload(self, blob: bytes, key: str, content_type: str | None = None):
+    def upload(self, blob: bytes, key: str, content_type: str | None = None) -> None:
         pass
 
-    def download(self, key: str):
+    def download(self, key: str) -> bytes:
         pass
 
 
