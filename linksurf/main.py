@@ -1,14 +1,9 @@
 from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
-from linksurf.common.fixture import COUNTRIES
 from linksurf.common.models import URL
-from linksurf.components.frontier.filters import URLSeenFilter, CountryFilter, URLExtensionFilter, RobotsExclusionFilter
-from linksurf.components.frontier.middlewares import (
-    URLNormalizationMiddleware, DNSMiddleware, CountryMiddleware, RobotsExclusionMiddleware
-)
-from linksurf.components.storage.filters import ContentSeenFilter
-from linksurf.services import Services, Database, Cache
+from linksurf.services import Services, Cache
 from linksurf.services.blob import S3BlobStorage
+from linksurf.services.database import MongoDatabase
 from linksurf.services.fetcher import RequestsFetcher
 
 if __name__ == "__main__":
@@ -19,7 +14,7 @@ if __name__ == "__main__":
     ]
 
     services = Services(
-        database=Database(),
+        database=MongoDatabase(url="mongodb://root:root@localhost:27017"),
         blob_storage=S3BlobStorage(
             bucket="linksurf",
             endpoint_url="http://localhost:9000",

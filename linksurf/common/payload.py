@@ -15,6 +15,7 @@ class Payload:
             request: HTTPRequest | None = None,
             response: HTTPResponseSummary | None = None,
             metadata: dict[str, Any] | None = None,
+            storage_id: str | None = None,
     ):
         if metadata is None:
             metadata = {}
@@ -25,6 +26,7 @@ class Payload:
         self.request = request
         self.response = response
         self._metadata = metadata
+        self.storage_id = storage_id
 
     @property
     def metadata(self) -> dict[str, Any]:
@@ -44,6 +46,7 @@ class Payload:
             "request": asdict(self.request) if self.request else None,
             "response": asdict(self.response) if self.response else None,
             "metadata": self._metadata,
+            "storage_id": self.storage_id,
         }
 
     @classmethod
@@ -59,4 +62,5 @@ class Payload:
             request=HTTPRequest(**request) if request else None,
             response=HTTPResponseSummary(**response) if response else None,
             metadata=data.get("metadata", {}),
+            storage_id=data.get("storage_id"),
         )
