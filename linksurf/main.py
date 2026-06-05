@@ -1,8 +1,10 @@
 from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
 from linksurf.common.models import URL
-from linksurf.services import Services, Cache
+from linksurf.components.frontier.filters import URLSeenFilter
+from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
+from linksurf.services.cache import RedisCache
 from linksurf.services.database import MongoDatabase
 from linksurf.services.fetcher import RequestsFetcher
 
@@ -21,7 +23,10 @@ if __name__ == "__main__":
             access_key="minioadmin",
             secret_key="minioadmin",
         ),
-        cache=Cache(),
+        cache=RedisCache(
+            host="localhost",
+            port=6379,
+        ),
         fetcher=RequestsFetcher(),
     )
 
@@ -49,7 +54,7 @@ if __name__ == "__main__":
     ]
 
     linksurf.frontier.filters = [
-        # URLSeenFilter(),
+        URLSeenFilter(),
         # CountryFilter(allowed=[COUNTRIES["BRA"]]),
         # URLExtensionFilter(allowed=["html", "pdf"]), #? [Maybe this should be a Downloader middleware+filter that sends a HEAD request]
         # RobotsExclusionFilter(),

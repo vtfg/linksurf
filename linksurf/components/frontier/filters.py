@@ -2,11 +2,20 @@ from linksurf.common.models import Country
 from linksurf.common.payload import Payload
 from linksurf.components.base import Filter, FilterResponse
 from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, CountryMiddleware
+from linksurf.services import Services, Cache
 
 
 class URLSeenFilter(Filter):
+    cache: Cache
+
+    def on_start(self, services: Services):
+        self.cache = services.cache
+
     def execute(self, payload: Payload) -> FilterResponse:
-        pass
+        if self.cache.is_url_seen(payload.url):
+            return FilterResponse(False, None)
+
+        return FilterResponse(True, None)
 
 
 class CountryFilter(Filter):
