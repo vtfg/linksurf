@@ -1,14 +1,12 @@
 from dataclasses import dataclass
 from enum import Enum
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from linksurf.utils.url import hash_url
 
 
 class URL:
     def __init__(self, address: str):
-        self.address = address
-
         split = urlsplit(address)
 
         self.scheme = split.scheme
@@ -18,8 +16,18 @@ class URL:
         self.fragment = split.fragment
 
     @property
+    def address(self):
+        return urlunsplit((self.scheme, self.domain, self.path, self.query, self.fragment))
+
+    @property
     def hash(self):
         return hash_url(self.address)
+
+    @property
+    def origin(self):
+        """ Returns a string of {scheme}://{domain} """
+
+        return f"{self.scheme}://{self.domain}"
 
 
 class LinkType(str, Enum):

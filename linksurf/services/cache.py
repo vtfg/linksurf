@@ -8,10 +8,18 @@ from linksurf.services.base import Service
 logger = logging.getLogger(__name__)
 
 _URL_SEEN_CACHE_KEY = "linksurf:seen"
+_ROBOTS_CACHE_KEY_PREFIX = "linksurf:robots:"
+_ROBOTS_CACHE_TTL = 60 * 60 * 24  # 24 hours
 
 
 class Cache(Service):
     NAME = "cache"
+
+    def save_domain_robots_txt(self, domain: str, contents: str) -> None:
+        pass
+
+    def get_domain_robots_txt(self, domain: str) -> str | None:
+        pass
 
     def mark_url_seen(self, url: URL) -> None:
         pass
@@ -36,6 +44,18 @@ class RedisCache(Cache):
         if self._client is not None:
             self._client.close()
             self._client = None
+
+    def save_domain_robots_txt(self, domain: str, contents: str) -> None:
+        key = f"{_ROBOTS_CACHE_KEY_PREFIX}{domain}"
+
+        self._client.set(key, contents, ex=_ROBOTS_CACHE_TTL)
+
+    def get_domain_robots_txt(self, domain: str) -> str | None:
+        key = f"{_ROBOTS_CACHE_KEY_PREFIX}{domain}"
+
+        cached = self._client.get(key)
+
+        return cached.decode() if cached else None
 
     def mark_url_seen(self, url: URL) -> None:
         self._client.sadd(_URL_SEEN_CACHE_KEY, url.hash)

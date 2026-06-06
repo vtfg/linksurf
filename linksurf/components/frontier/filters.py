@@ -50,6 +50,6 @@ class RobotsExclusionFilter(Filter):
     DEPENDS_ON = [RobotsExclusionMiddleware]
 
     def execute(self, payload: Payload) -> FilterResponse:
-        # Fetch robots.txt and checks if URL is excluded
+        robots = dict(payload.get_metadata("robots"))
 
-        return FilterResponse(True, None)
+        return FilterResponse(robots.get("can_fetch", False), None)
