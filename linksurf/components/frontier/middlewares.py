@@ -1,12 +1,12 @@
 import logging
 from urllib.robotparser import RobotFileParser
 
-from linksurf.common.fixture import COUNTRIES
 from linksurf.common.models import HTTPRequest, URL
 from linksurf.common.payload import Payload
 from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
 from linksurf.services import Services, Fetcher, Cache
+from linksurf.utils.dns import check_domain_availability
 from linksurf.utils.url import normalize_url
 
 logger = logging.getLogger(__name__)
@@ -14,11 +14,46 @@ logger = logging.getLogger(__name__)
 
 class DNSMiddleware(Middleware):
     """
-    Queries the website's DNS and checks availability, IP, etc.
+    Queries the website's DNS to check availability and IP.
     """
 
+    cache: Cache
+
+    def on_start(self, services: Services):
+        self.cache = services.cache
+
     def execute(self, payload: Payload) -> MiddlewareResponse:
-        pass
+        if payload.url.scheme not in ["http", "https"]:
+            return MiddlewareResponse(None, Error("Scheme not supported.", retriable=False))
+
+        domain = payload.url.domain
+        port = payload.url.port
+
+        try:
+            cached = self.cache.get_domain_status(domain, port)
+        except Exception as e:
+            logger.exception("Cache raised an exception for %s", payload.url.domain)
+
+            return MiddlewareResponse(None, Error("Failed to retrieve domain status from cache.", retriable=True))
+
+        if cached:
+            available, ip = cached
+        else:
+            available, ip = check_domain_availability(domain, port)
+
+            try:
+                self.cache.save_domain_status(domain, port, available, ip)
+            except Exception as e:
+                logger.exception("Cache raised an exception for %s", payload.url.domain)
+
+                return MiddlewareResponse(None, Error("Failed to save domain status to cache.", retriable=True))
+
+        if not available or ip is None:
+            return MiddlewareResponse(None, Error("URL is invalid or unreachable.", retriable=True))
+
+        payload.add_metadata("dns", {"available": True, "ip": ip})
+
+        return MiddlewareResponse(payload, None)
 
 
 class CountryMiddleware(Middleware):
@@ -27,19 +62,14 @@ class CountryMiddleware(Middleware):
     """
 
     def execute(self, payload: Payload) -> MiddlewareResponse:
-        _ = payload.url.domain
-        _ = payload.get_metadata("ip")
-
-        # Check domain TLD, fetch server IP location, etc.
-
-        payload.add_metadata("country", COUNTRIES["bra"])
-
-        return MiddlewareResponse(payload, None)
+        raise NotImplementedError()
 
 
 class RobotsExclusionMiddleware(Middleware):
     """
     Queries the website's robots.txt file and ensures page can be accessed.
+
+    Follows (almost) all instructions described in [RFC 9309](https://datatracker.ietf.org/doc/html/rfc9309).
     """
 
     cache: Cache

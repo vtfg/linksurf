@@ -2,7 +2,8 @@ from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
 from linksurf.common.models import URL
 from linksurf.components.frontier.filters import URLSeenFilter, RobotsExclusionFilter
-from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, URLNormalizationMiddleware
+from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, URLNormalizationMiddleware, \
+    DNSMiddleware
 from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
 from linksurf.services.cache import RedisCache
@@ -15,6 +16,7 @@ if __name__ == "__main__":
         URL("https://example.com"),
         URL("http://example.com:80"),
         URL("https://example.com:443"),
+        URL("https://example.com:42069"),
         URL("ftp://username:password@example.com"),
         # URL("https://www.goodreads.com/"),
         # URL("https://www.reddit.com/"),
@@ -52,9 +54,9 @@ if __name__ == "__main__":
     ]
 
     linksurf.frontier.middlewares = [
-        # DNSMiddleware(),
-        # CountryMiddleware(),
         URLNormalizationMiddleware(),
+        DNSMiddleware(),
+        # CountryMiddleware(),
         RobotsExclusionMiddleware(),
     ]
 

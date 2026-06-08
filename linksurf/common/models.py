@@ -10,14 +10,20 @@ class URL:
         split = urlsplit(address)
 
         self.scheme = split.scheme
-        self.domain = split.netloc
+        self.domain = split.hostname # domain only
+        self._netloc = split.netloc # domain:port
         self.path = split.path
         self.query = split.query
         self.fragment = split.fragment
 
+        if split.port:
+            self.port = split.port
+        else:
+            self.port = 80 if split.scheme == "http" else 443
+
     @property
     def address(self):
-        return urlunsplit((self.scheme, self.domain, self.path, self.query, self.fragment))
+        return urlunsplit((self.scheme, self._netloc, self.path, self.query, self.fragment))
 
     @property
     def hash(self):
