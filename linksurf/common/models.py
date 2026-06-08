@@ -45,8 +45,7 @@ class Link:
 
 
 @dataclass(frozen=True)
-class HTTPRequest:
-    url: str
+class HTTPRequestSummary:
     method: str = "GET"
     proxy: str | None = None
     timeout: float = 30.0
@@ -54,8 +53,24 @@ class HTTPRequest:
 
 
 @dataclass(frozen=True)
-class HTTPResponseSummary:
+class HTTPRequest:
     url: str
+    method: str = "GET"
+    proxy: str | None = None
+    timeout: float = 30.0
+    follow_redirects: bool = False
+
+    def to_summary(self) -> HTTPRequestSummary:
+        return HTTPRequestSummary(
+            method=self.method,
+            proxy=self.proxy,
+            timeout=self.timeout,
+            follow_redirects=self.follow_redirects,
+        )
+
+
+@dataclass(frozen=True)
+class HTTPResponseSummary:
     status_code: int
     headers: dict[str, str]
     encoding: str
@@ -88,7 +103,6 @@ class HTTPResponse:
 
     def to_summary(self) -> HTTPResponseSummary:
         return HTTPResponseSummary(
-            url=self.url,
             status_code=self.status_code,
             headers=self.headers,
             encoding=self.encoding,

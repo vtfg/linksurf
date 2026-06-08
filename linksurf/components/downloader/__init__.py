@@ -56,7 +56,7 @@ class Downloader(Component[Payload]):
             return Response(None, Error("Blob upload failed.", retriable=True))
 
         payload.content = Content(key=key, type=mime_type or "unknown")
-        payload.request = request
+        payload.request = request.to_summary()
         payload.response = response.to_summary()
 
         return Response(payload, None)

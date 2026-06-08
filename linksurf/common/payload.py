@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from linksurf.common.models import URL, HTTPRequest, HTTPResponseSummary, Content
+from linksurf.common.models import URL, Content, HTTPResponseSummary, HTTPRequestSummary
 
 
 class Payload:
@@ -12,7 +12,7 @@ class Payload:
             url: URL,
             priority: int = 0,
             content: Content | None = None,
-            request: HTTPRequest | None = None,
+            request: HTTPRequestSummary | None = None,
             response: HTTPResponseSummary | None = None,
             metadata: dict[str, Any] | None = None,
             storage_id: str | None = None,
@@ -59,7 +59,7 @@ class Payload:
             url=URL(data["url"]),
             priority=data.get("priority", 0),
             content=Content(**content) if content else None,
-            request=HTTPRequest(**request) if request else None,
+            request=HTTPRequestSummary(**request) if request else None,
             response=HTTPResponseSummary(**response) if response else None,
             metadata=data.get("metadata", {}),
             storage_id=data.get("storage_id"),
