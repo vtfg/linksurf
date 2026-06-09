@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from urllib.parse import urlsplit, urlunsplit
 
+from linksurf.common.types import CaseInsensitiveDict
 from linksurf.utils.url import hash_url
 
 
@@ -83,9 +84,16 @@ class HTTPResponseSummary:
     elapsed_ms: float
     redirects: list[str]
 
+    def __post_init__(self):
+        object.__setattr__(self, "headers", CaseInsensitiveDict(self.headers))
+
     @property
     def ok(self) -> bool:
         return 200 <= self.status_code < 300
+
+    @property
+    def content_type(self) -> str | None:
+        return self.headers.get("content-type")
 
 
 @dataclass(frozen=True)
@@ -99,9 +107,16 @@ class HTTPResponse:
     redirects: list[str]
     request: HTTPRequest
 
+    def __post_init__(self):
+        object.__setattr__(self, "headers", CaseInsensitiveDict(self.headers))
+
     @property
     def ok(self) -> bool:
         return 200 <= self.status_code < 300
+
+    @property
+    def content_type(self) -> str | None:
+        return self.headers.get("content-type")
 
     @property
     def text(self) -> str:

@@ -125,9 +125,7 @@ class RobotsExclusionMiddleware(Middleware):
 
             return MiddlewareResponse(payload, None)
 
-        content_type = response.headers.get("Content-Type", "")
-
-        mime_type = content_type.split(";")[0].strip() if content_type else None
+        mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 
         if mime_type != MimeType.TEXT:
             return MiddlewareResponse(None, Error("Invalid content type.", retriable=True))

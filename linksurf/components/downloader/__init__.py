@@ -44,9 +44,7 @@ class Downloader(Component[Payload]):
         if response is None:
             return Response(None, Error("Fetcher returned no response.", retriable=True))
 
-        content_type = response.headers.get("Content-Type")
-
-        mime_type = content_type.split(";")[0].strip() if content_type else None
+        mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 
         key = url.hash
 

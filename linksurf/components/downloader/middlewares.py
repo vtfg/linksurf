@@ -31,9 +31,7 @@ class ContentTypeMiddleware(Middleware):
 
             return MiddlewareResponse(None, Error("Fetch failed.", retriable=True))
 
-        content_type = response.headers.get("Content-Type", "")
-
-        mime_type = content_type.split(";")[0].strip() if content_type else None
+        mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 
         if mime_type is None:
             return MiddlewareResponse(None, Error("Unknown content type.", retriable=True))
