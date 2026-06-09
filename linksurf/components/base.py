@@ -15,29 +15,42 @@ class Producer:
 
 class Component[T](Consumer, Producer):
     def __init__(self):
+        self.deduplicator: Deduplicator | None = None
         self.middlewares: list[Middleware] = []
         self.filters: list[Filter] = []
 
     def on_start(self, services: Services):
+        if self.deduplicator is not None:
+            self.deduplicator.on_start(services)
+
         for middleware in self.middlewares:
             middleware.on_start(services)
 
-        for filter_ in self.filters:
-            filter_.on_start(services)
+        for filter in self.filters:
+            filter.on_start(services)
 
     def on_stop(self):
         pass
 
     @final
     def process(self, payload: Payload) -> Response[T]:
+        if self.deduplicator is not None:
+            response = self.deduplicator.check(payload)
+
+            if response.error is not None:
+                return Response(None, response.error)
+
+            if response.data:
+                return Response(None, None)
+
         for middleware in self.middlewares:
             response = middleware.execute(payload)
 
             if response.error is not None:
                 return Response(None, response.error)
 
-        for filter_ in self.filters:
-            response = filter_.execute(payload)
+        for filter in self.filters:
+            response = filter.execute(payload)
 
             if response.error is not None:
                 return Response(None, response.error)
@@ -90,4 +103,22 @@ class PrioritizerResponse(Response[int]):
 
 class Prioritizer(Executor):
     def execute(self, payload: Payload) -> PrioritizerResponse:
+        pass
+
+
+class DeduplicatorResponse(Response[bool]):
+    pass
+
+
+class Deduplicator:
+    def on_start(self, services: Services):
+        pass
+
+    def on_stop(self):
+        pass
+
+    def check(self, payload: Payload) -> DeduplicatorResponse:
+        pass
+
+    def register(self, payload: Payload) -> None:
         pass

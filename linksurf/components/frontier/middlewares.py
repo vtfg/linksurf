@@ -1,13 +1,12 @@
 import logging
 from urllib.robotparser import RobotFileParser
 
-from linksurf.common.models import HTTPRequest, URL, MimeType
+from linksurf.common.models import HTTPRequest, MimeType
 from linksurf.common.payload import Payload
 from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
 from linksurf.services import Services, Fetcher, Cache
 from linksurf.utils.dns import check_domain_availability
-from linksurf.utils.url import normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -151,16 +150,3 @@ class RobotsExclusionMiddleware(Middleware):
         parser.parse(contents.splitlines())
 
         return parser
-
-
-class URLNormalizationMiddleware(Middleware):
-    """
-    Normalizes the URL by removing default ports, tracking parameters, fragments and sorting parameters.
-    """
-
-    def execute(self, payload: Payload) -> MiddlewareResponse:
-        normalized = normalize_url(payload.url.address)
-
-        payload.url = URL(address=normalized)
-
-        return MiddlewareResponse(payload, None)

@@ -3,12 +3,12 @@ from enum import Enum
 from urllib.parse import urlsplit, urlunsplit
 
 from linksurf.common.types import CaseInsensitiveDict
-from linksurf.utils.url import hash_url
+from linksurf.utils.url import hash_url, normalize_url
 
 
 class URL:
     def __init__(self, address: str):
-        split = urlsplit(address)
+        split = urlsplit(normalize_url(address))
 
         self.scheme = split.scheme
         self.domain = split.hostname  # domain only

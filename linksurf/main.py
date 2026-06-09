@@ -3,12 +3,8 @@ from linksurf.broker.rabbitmq import RabbitMQBroker
 from linksurf.common.models import URL, MimeType
 from linksurf.components.downloader.filters import ContentTypeFilter
 from linksurf.components.downloader.middlewares import ContentTypeMiddleware
-from linksurf.components.frontier.filters import RobotsExclusionFilter, URLSeenFilter
-from linksurf.components.frontier.middlewares import (
-    RobotsExclusionMiddleware,
-    URLNormalizationMiddleware,
-    DNSMiddleware,
-)
+from linksurf.components.frontier.filters import RobotsExclusionFilter
+from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware
 from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
 from linksurf.services.cache import RedisCache
@@ -59,14 +55,12 @@ if __name__ == "__main__":
     ]
 
     linksurf.frontier.middlewares = [
-        URLNormalizationMiddleware(),
         DNSMiddleware(),
         # CountryMiddleware(),
         RobotsExclusionMiddleware(),
     ]
 
     linksurf.frontier.filters = [
-        URLSeenFilter(),
         # CountryFilter(allowed=[COUNTRIES["BRA"]]),
         # URLExtensionFilter(allowed=["html", "pdf"]), #? Implement this as a high-level URL filter for schemes, extensions and blocked domains
         RobotsExclusionFilter(),
