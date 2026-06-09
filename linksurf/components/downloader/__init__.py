@@ -1,6 +1,6 @@
 import logging
 
-from linksurf.common.models import HTTPRequest
+from linksurf.common.models import HTTPRequest, MimeType
 from linksurf.common.payload import Content, Payload
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
@@ -21,6 +21,8 @@ class Downloader(Component[Payload]):
         super().__init__()
 
     def on_start(self, services: Services):
+        super().on_start(services)
+
         self.fetcher = services.fetcher
         self.blob_storage = services.blob_storage
 
@@ -55,7 +57,14 @@ class Downloader(Component[Payload]):
 
             return Response(None, Error("Blob upload failed.", retriable=True))
 
-        payload.content = Content(key=key, type=mime_type or "unknown")
+        try:
+            type = MimeType(mime_type)
+        except ValueError:
+            logger.exception("Mime type not supported: %s", mime_type)
+
+            type = MimeType.UNKNOWN
+
+        payload.content = Content(key=key, type=type)
         payload.request = request.to_summary()
         payload.response = response.to_summary()
 

@@ -10,8 +10,8 @@ class URL:
         split = urlsplit(address)
 
         self.scheme = split.scheme
-        self.domain = split.hostname # domain only
-        self._netloc = split.netloc # domain:port
+        self.domain = split.hostname  # domain only
+        self._netloc = split.netloc  # domain:port
         self.path = split.path
         self.query = split.query
         self.fragment = split.fragment
@@ -117,10 +117,17 @@ class HTTPResponse:
         )
 
 
+class MimeType(str, Enum):
+    TEXT = "text/plain"
+    HTML = "text/html"
+    PDF = "application/pdf"
+    UNKNOWN = "unknown"
+
+
 @dataclass
 class Content:
     key: str
-    type: str
+    type: MimeType
 
 
 class Country:
