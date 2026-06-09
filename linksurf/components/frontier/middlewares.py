@@ -1,7 +1,7 @@
 import logging
 from urllib.robotparser import RobotFileParser
 
-from linksurf.common.models import HTTPRequest, URL
+from linksurf.common.models import HTTPRequest, URL, MimeType
 from linksurf.common.payload import Payload
 from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
@@ -112,6 +112,9 @@ class RobotsExclusionMiddleware(Middleware):
 
         status = response.status_code
 
+        if status == 403:
+            return MiddlewareResponse(None, Error("robots.txt access denied.", retriable=True))
+
         if 400 <= status < 500:
             payload.add_metadata("robots", {"available": False, "can_fetch": True})
 
@@ -122,7 +125,11 @@ class RobotsExclusionMiddleware(Middleware):
 
             return MiddlewareResponse(payload, None)
 
-        if not "text/plain" in response.headers.get("Content-Type", ""):
+        content_type = response.headers.get("Content-Type", "")
+
+        mime_type = content_type.split(";")[0].strip() if content_type else None
+
+        if mime_type != MimeType.TEXT:
             return MiddlewareResponse(None, Error("Invalid content type.", retriable=True))
 
         parser = self._build_parser(response.text)

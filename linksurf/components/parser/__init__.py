@@ -1,6 +1,6 @@
 import logging
 
-from linksurf.common.models import URL, Link
+from linksurf.common.models import URL, Link, MimeType
 from linksurf.common.payload import Payload
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
@@ -29,7 +29,7 @@ class Parser(Component[Payload]):
         if payload.content is None:
             return Response(None, Error("Payload has no content.", retriable=False))
 
-        if "html" not in payload.content.type:
+        if payload.content.type != MimeType.HTML:
             return Response(None, Error("Content type not supported.", retriable=False))
 
         try:
