@@ -2,7 +2,7 @@ from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
 from linksurf.common.models import URL, MimeType
 from linksurf.components.downloader.filters import ContentTypeFilter
-from linksurf.components.downloader.middlewares import ContentTypeMiddleware
+from linksurf.components.downloader.middlewares import ContentTypeMiddleware, RateLimiterMiddleware
 from linksurf.components.frontier.filters import RobotsExclusionFilter
 from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware
 from linksurf.components.frontier.rules import (
@@ -22,6 +22,9 @@ if __name__ == "__main__":
     seed = [
         URL("http://example.com"),
         URL("https://example.com"),
+        URL("https://example.com/abc"),
+        URL("https://example.com/def"),
+        URL("https://example.com/ghi"),
         URL("http://example.com:80"),
         URL("https://example.com:443"),
         URL("https://example.com:42069"),
@@ -81,6 +84,7 @@ if __name__ == "__main__":
 
     linksurf.downloader.middlewares = [
         ContentTypeMiddleware(),
+        RateLimiterMiddleware(),
     ]
 
     linksurf.downloader.filters = [

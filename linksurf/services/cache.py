@@ -15,6 +15,8 @@ _DOMAIN_STATUS_CACHE_TTL = ONE_DAY_IN_SECONDS
 _URL_SEEN_CACHE_KEY = "linksurf:seen"
 _ROBOTS_CACHE_KEY_PREFIX = "linksurf:robots:"
 _ROBOTS_CACHE_TTL = ONE_DAY_IN_SECONDS
+_LAST_FETCH_KEY_PREFIX = "linksurf:fetch:"
+_LAST_FETCH_TTL = ONE_DAY_IN_SECONDS
 
 
 class Cache(Service):
@@ -36,6 +38,12 @@ class Cache(Service):
         pass
 
     def is_url_seen(self, url: URL) -> bool:
+        pass
+
+    def save_domain_last_fetch(self, domain: str, port: int, timestamp: float) -> None:
+        pass
+
+    def get_domain_last_fetch(self, domain: str, port: int) -> float | None:
         pass
 
 
@@ -96,3 +104,15 @@ class RedisCache(Cache):
 
     def is_url_seen(self, url: URL) -> bool:
         return self._client.sismember(_URL_SEEN_CACHE_KEY, url.hash) == 1
+
+    def save_domain_last_fetch(self, domain: str, port: int, timestamp: float) -> None:
+        key = f"{_LAST_FETCH_KEY_PREFIX}{domain}@{port}"
+
+        self._client.set(key, timestamp, ex=_LAST_FETCH_TTL)
+
+    def get_domain_last_fetch(self, domain: str, port: int) -> float | None:
+        key = f"{_LAST_FETCH_KEY_PREFIX}{domain}@{port}"
+
+        value = self._client.get(key)
+
+        return float(value) if value is not None else None

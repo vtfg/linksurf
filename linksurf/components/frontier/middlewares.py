@@ -87,8 +87,9 @@ class RobotsExclusionMiddleware(Middleware):
             parser = self._build_parser(cached)
 
             can_fetch = parser.can_fetch("*", payload.url.address)
+            delay = parser.crawl_delay("*")
 
-            payload.add_metadata("robots", {"available": True, "can_fetch": can_fetch})
+            payload.add_metadata("robots", {"available": True, "can_fetch": can_fetch, "delay": delay})
 
             return MiddlewareResponse(payload, None)
 
@@ -126,6 +127,7 @@ class RobotsExclusionMiddleware(Middleware):
         parser = self._build_parser(response.text)
 
         can_fetch = parser.can_fetch("*", payload.url.address)
+        delay = parser.crawl_delay("*")
 
         try:
             self.cache.save_domain_robots_txt(payload.url.domain, response.text)
@@ -134,7 +136,7 @@ class RobotsExclusionMiddleware(Middleware):
 
             return MiddlewareResponse(None, Error("Failed to save robots.txt to cache.", retriable=True))
 
-        payload.add_metadata("robots", {"available": True, "can_fetch": can_fetch})
+        payload.add_metadata("robots", {"available": True, "can_fetch": can_fetch, "delay": delay})
 
         return MiddlewareResponse(payload, None)
 
