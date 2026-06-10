@@ -36,6 +36,19 @@ class URL:
 
         return f"{self.scheme}://{self.domain}"
 
+    @property
+    def extension(self) -> str | None:
+        segment = self.path.rsplit("/", 1)[-1]
+
+        if "." in segment:
+            return segment.rsplit(".", 1)[-1].lower() or None
+
+        return None
+
+    @property
+    def path_depth(self) -> int:
+        return len([s for s in self.path.split("/") if s])
+
 
 class LinkType(str, Enum):
     INTERNAL = "INTERNAL"

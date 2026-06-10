@@ -22,9 +22,6 @@ class DNSMiddleware(Middleware):
         self.cache = services.cache
 
     def execute(self, payload: Payload) -> MiddlewareResponse:
-        if payload.url.scheme not in ["http", "https"]:
-            return MiddlewareResponse(None, Error("Scheme not supported.", retriable=False))
-
         domain = payload.url.domain
         port = payload.url.port
 
@@ -79,9 +76,6 @@ class RobotsExclusionMiddleware(Middleware):
         self.fetcher = services.fetcher
 
     def execute(self, payload: Payload) -> MiddlewareResponse:
-        if payload.url.scheme not in ["http", "https"]:
-            return MiddlewareResponse(None, Error("Scheme not supported.", retriable=False))
-
         try:
             cached = self.cache.get_domain_robots_txt(payload.url.domain)
         except Exception as e:

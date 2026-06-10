@@ -29,9 +29,6 @@ class Downloader(Component[Payload]):
     def run(self, payload: Payload) -> Response[Payload]:
         url = payload.url
 
-        if url.scheme not in ["http", "https"]:
-            return Response(None, Error("Schema not supported", retriable=False))
-
         request = HTTPRequest(url=url.address)
 
         try:

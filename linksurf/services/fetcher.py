@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from requests import Session
 
 from linksurf.common.models import HTTPRequest, HTTPResponse
@@ -24,6 +26,11 @@ class RequestsFetcher(Fetcher):
             self._session = None
 
     def http(self, request: HTTPRequest) -> HTTPResponse:
+        scheme = urlsplit(request.url).scheme
+
+        if scheme not in ["http", "https"]:
+            raise ValueError(f"Unsupported scheme: {scheme}")
+
         proxies = None
 
         if request.proxy:

@@ -5,6 +5,13 @@ from linksurf.components.downloader.filters import ContentTypeFilter
 from linksurf.components.downloader.middlewares import ContentTypeMiddleware
 from linksurf.components.frontier.filters import RobotsExclusionFilter
 from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware
+from linksurf.components.frontier.rules import (
+    SchemeRule,
+    URLExtensionRule,
+    URLLimitsRule,
+    BlockedDomainsRule,
+    BLOCKED_EXTENSIONS,
+)
 from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
 from linksurf.services.cache import RedisCache
@@ -54,6 +61,13 @@ if __name__ == "__main__":
         # ProxyPoolExtension(proxies=list[URL?]) -> manages proxies and returns one before every request
     ]
 
+    linksurf.frontier.rules = [
+        SchemeRule(allowed=["http", "https"]),
+        URLExtensionRule(blocked=BLOCKED_EXTENSIONS),
+        URLLimitsRule(max_length=2048, max_path_depth=10),
+        BlockedDomainsRule(blocked=["google.com"]),
+    ]
+
     linksurf.frontier.middlewares = [
         DNSMiddleware(),
         # CountryMiddleware(),
@@ -62,7 +76,6 @@ if __name__ == "__main__":
 
     linksurf.frontier.filters = [
         # CountryFilter(allowed=[COUNTRIES["BRA"]]),
-        # URLExtensionFilter(allowed=["html", "pdf"]), #? Implement this as a high-level URL filter for schemes, extensions and blocked domains
         RobotsExclusionFilter(),
     ]
 

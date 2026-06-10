@@ -15,11 +15,15 @@ class Producer:
 
 class Component[T](Consumer, Producer):
     def __init__(self):
+        self.rules: list[Rule] = []
         self.deduplicator: Deduplicator | None = None
         self.middlewares: list[Middleware] = []
         self.filters: list[Filter] = []
 
     def on_start(self, services: Services):
+        for rule in self.rules:
+            rule.on_start(services)
+
         if self.deduplicator is not None:
             self.deduplicator.on_start(services)
 
@@ -34,6 +38,15 @@ class Component[T](Consumer, Producer):
 
     @final
     def process(self, payload: Payload) -> Response[T]:
+        for rule in self.rules:
+            response = rule.execute(payload)
+
+            if response.error is not None:
+                return Response(None, response.error)
+
+            if not response.data:
+                return Response(None, None)
+
         if self.deduplicator is not None:
             response = self.deduplicator.check(payload)
 
@@ -82,6 +95,15 @@ class MiddlewareResponse(Response[Payload]):
 # Enriches metadata
 class Middleware(Executor):
     def execute(self, payload: Payload) -> MiddlewareResponse:
+        pass
+
+
+class RuleResponse(Response[bool]):
+    pass
+
+
+class Rule(Executor):
+    def execute(self, payload: Payload) -> RuleResponse:
         pass
 
 
