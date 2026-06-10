@@ -88,3 +88,72 @@ class RateLimiterMiddleware(Middleware):
             return MiddlewareResponse(None, Error("Failed to save last fetch time to cache.", retriable=True))
 
         return MiddlewareResponse(payload, None)
+
+
+class ContentLengthMiddleware(Middleware):
+    """
+    Retrieves and parses the URL's content length from the response headers as bytes.
+    """
+
+    fetcher: Fetcher
+
+    def on_start(self, services):
+        self.fetcher = services.fetcher
+
+    def execute(self, payload: Payload) -> MiddlewareResponse:
+        url = payload.url.address
+
+        request = HTTPRequest(url, method="HEAD")
+
+        try:
+            response = self.fetcher.http(request)
+        except Exception as e:
+            logger.exception("Fetcher raised an exception for %s", url)
+
+            return MiddlewareResponse(None, Error("Fetch failed.", retriable=True))
+
+        raw_length = response.content_length
+
+        chunked = "chunked" in response.headers.get("Transfer-Encoding", "").lower()
+
+        if chunked:
+            payload.add_metadata("content_length", {"value": None, "chunked": True})
+
+            return MiddlewareResponse(payload, None)
+
+        if raw_length is None:
+            payload.add_metadata("content_length", {"value": None, "chunked": False})
+
+            return MiddlewareResponse(payload, None)
+
+        try:
+            length = self._parse_length(raw_length)
+        except Exception:
+            logger.exception("Content-Length parse failed for %s", url)
+
+            return MiddlewareResponse(None, Error("Invalid content length.", retriable=False))
+
+        payload.add_metadata("content_length", {"value": length, "chunked": False})
+
+        return MiddlewareResponse(payload, None)
+
+    def _parse_length(self, raw: str) -> int:
+        if "," in raw:
+            parts = [p.strip() for p in raw.split(",")]
+
+            if len(set(parts)) > 1:
+                raise ValueError("Conflicting Content-Length headers")
+
+            value = parts[0]
+        else:
+            value = raw
+
+        try:
+            size = int(value)
+        except ValueError:
+            raise ValueError(f"Invalid Content-Length format: {value!r}")
+
+        if size < 0:
+            raise ValueError("Negative Content-Length")
+
+        return size

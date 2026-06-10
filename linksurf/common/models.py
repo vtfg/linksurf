@@ -132,6 +132,10 @@ class HTTPResponse:
         return self.headers.get("content-type")
 
     @property
+    def content_length(self) -> str | None:
+        return self.headers.get("content-length")
+
+    @property
     def text(self) -> str:
         return self.body.decode(self.encoding or "utf-8", errors="replace")
 

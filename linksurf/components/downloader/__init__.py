@@ -1,5 +1,6 @@
 import logging
 
+from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES
 from linksurf.common.models import HTTPRequest, MimeType
 from linksurf.common.payload import Content, Payload
 from linksurf.common.types import Response, Error
@@ -40,6 +41,9 @@ class Downloader(Component[Payload]):
 
         if response is None:
             return Response(None, Error("Fetcher returned no response.", retriable=True))
+
+        if len(response.body) > TEN_MEGABYTES_IN_BYTES:  # Safety bound
+            return Response(None, Error("Body exceeds maximum allowed size.", retriable=False))
 
         mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 

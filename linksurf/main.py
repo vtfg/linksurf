@@ -1,8 +1,13 @@
 from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
+from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES
 from linksurf.common.models import URL, MimeType
-from linksurf.components.downloader.filters import ContentTypeFilter
-from linksurf.components.downloader.middlewares import ContentTypeMiddleware, RateLimiterMiddleware
+from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
+from linksurf.components.downloader.middlewares import (
+    ContentTypeMiddleware,
+    RateLimiterMiddleware,
+    ContentLengthMiddleware,
+)
 from linksurf.components.frontier.filters import RobotsExclusionFilter
 from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware
 from linksurf.components.frontier.rules import (
@@ -84,11 +89,13 @@ if __name__ == "__main__":
 
     linksurf.downloader.middlewares = [
         ContentTypeMiddleware(),
+        ContentLengthMiddleware(),
         RateLimiterMiddleware(),
     ]
 
     linksurf.downloader.filters = [
         ContentTypeFilter(allowed=[MimeType.HTML]),
+        ContentLengthFilter(max_bytes=TEN_MEGABYTES_IN_BYTES),
     ]
 
     linksurf.storage.filters = [
