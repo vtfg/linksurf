@@ -2,6 +2,7 @@ from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
 from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES
 from linksurf.common.models import URL, MimeType
+from linksurf.common.settings import Settings
 from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
 from linksurf.components.downloader.middlewares import (
     ContentTypeMiddleware,
@@ -55,11 +56,12 @@ if __name__ == "__main__":
 
     broker = RabbitMQBroker()
 
-    linksurf = Linksurf(services=services, broker=broker)
+    settings = Settings(
+        identifier="Linksurf",
+        user_agent="Linksurf/1.0",
+    )
 
-    # linksurf.config = Config(
-    #     user_agent="..."
-    # )
+    linksurf = Linksurf(services=services, broker=broker, settings=settings)
 
     # Future implementation
     # Extensions contain a list of middlewares for the frontier and filters for both frontier and storage

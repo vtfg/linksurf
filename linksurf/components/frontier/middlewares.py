@@ -3,6 +3,7 @@ from urllib.robotparser import RobotFileParser
 
 from linksurf.common.models import HTTPRequest, MimeType
 from linksurf.common.payload import Payload
+from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
 from linksurf.services import Services, Fetcher, Cache
@@ -18,7 +19,7 @@ class DNSMiddleware(Middleware):
 
     cache: Cache
 
-    def on_start(self, services: Services):
+    def on_start(self, settings, services: Services):
         self.cache = services.cache
 
     def execute(self, payload: Payload) -> MiddlewareResponse:
@@ -68,10 +69,14 @@ class RobotsExclusionMiddleware(Middleware):
     Follows (almost) all instructions described in [RFC 9309](https://datatracker.ietf.org/doc/html/rfc9309).
     """
 
+    identifier: str
+
     cache: Cache
     fetcher: Fetcher
 
-    def on_start(self, services: Services):
+    def on_start(self, settings: Settings, services: Services):
+        self.identifier = settings.identifier
+
         self.cache = services.cache
         self.fetcher = services.fetcher
 
@@ -86,8 +91,8 @@ class RobotsExclusionMiddleware(Middleware):
         if cached:
             parser = self._build_parser(cached)
 
-            can_fetch = parser.can_fetch("*", payload.url.address)
-            delay = parser.crawl_delay("*")
+            can_fetch = parser.can_fetch(self.identifier, payload.url.address)
+            delay = parser.crawl_delay(self.identifier)
 
             payload.add_metadata("robots", {"available": True, "can_fetch": can_fetch, "delay": delay})
 
@@ -126,8 +131,8 @@ class RobotsExclusionMiddleware(Middleware):
 
         parser = self._build_parser(response.text)
 
-        can_fetch = parser.can_fetch("*", payload.url.address)
-        delay = parser.crawl_delay("*")
+        can_fetch = parser.can_fetch(self.identifier, payload.url.address)
+        delay = parser.crawl_delay(self.identifier)
 
         try:
             self.cache.save_domain_robots_txt(payload.url.domain, response.text)

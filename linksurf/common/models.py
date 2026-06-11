@@ -67,15 +67,17 @@ class Link:
 @dataclass(frozen=True)
 class HTTPRequestSummary:
     method: str = "GET"
+    user_agent: str | None = None
     proxy: str | None = None
     timeout: float = 30.0
     follow_redirects: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass()
 class HTTPRequest:
     url: str
     method: str = "GET"
+    user_agent: str | None = None
     proxy: str | None = None
     timeout: float = 30.0
     follow_redirects: bool = False
@@ -83,6 +85,7 @@ class HTTPRequest:
     def to_summary(self) -> HTTPRequestSummary:
         return HTTPRequestSummary(
             method=self.method,
+            user_agent=self.user_agent,
             proxy=self.proxy,
             timeout=self.timeout,
             follow_redirects=self.follow_redirects,

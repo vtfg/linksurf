@@ -3,6 +3,7 @@ import logging
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from linksurf.common.settings import Settings
 from linksurf.services.base import Service
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class S3BlobStorage(BlobStorage):
         self.secret_key = secret_key
         self._client = None
 
-    def on_start(self):
+    def on_start(self, settings: Settings):
         self._client = boto3.client(
             "s3",
             region_name=self.region,

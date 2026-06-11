@@ -17,7 +17,7 @@ class ContentTypeMiddleware(Middleware):
 
     fetcher: Fetcher
 
-    def on_start(self, services):
+    def on_start(self, settings, services):
         self.fetcher = services.fetcher
 
     def execute(self, payload: Payload) -> MiddlewareResponse:
@@ -55,7 +55,7 @@ class RateLimiterMiddleware(Middleware):
     def __init__(self, default_delay: float = 1.0):
         self.default_delay = default_delay
 
-    def on_start(self, services: Services):
+    def on_start(self, settings, services: Services):
         self.cache = services.cache
 
     def execute(self, payload: Payload) -> MiddlewareResponse:
@@ -97,7 +97,7 @@ class ContentLengthMiddleware(Middleware):
 
     fetcher: Fetcher
 
-    def on_start(self, services):
+    def on_start(self, settings, services):
         self.fetcher = services.fetcher
 
     def execute(self, payload: Payload) -> MiddlewareResponse:

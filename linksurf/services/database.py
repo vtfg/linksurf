@@ -3,6 +3,7 @@ import logging
 from pymongo import MongoClient
 from pymongo.database import Database as MongoDb
 
+from linksurf.common.settings import Settings
 from linksurf.services.base import Service
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class MongoDatabase(Database):
         self._client: MongoClient | None = None
         self._database: MongoDb | None = None
 
-    def on_start(self):
+    def on_start(self, settings: Settings):
         self._client = MongoClient(self.uri)
         self._database = self._client[self.name]
 

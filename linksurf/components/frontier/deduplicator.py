@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class URLDeduplicator(Deduplicator):
     cache: Cache
 
-    def on_start(self, services: Services):
+    def on_start(self, settings, services: Services):
         self.cache = services.cache
 
     def check(self, payload: Payload) -> DeduplicatorResponse:

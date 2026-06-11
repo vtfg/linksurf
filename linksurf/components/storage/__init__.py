@@ -3,6 +3,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from linksurf.common.payload import Payload
+from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component, Filter
 from linksurf.services import Services
@@ -21,8 +22,8 @@ class Storage(Component[Payload]):
 
         self.filters: list[Filter] = []
 
-    def on_start(self, services: Services):
-        super().on_start(services)
+    def on_start(self, settings: Settings, services: Services):
+        super().on_start(settings, services)
 
         self.database = services.database
 

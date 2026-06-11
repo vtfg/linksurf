@@ -1,6 +1,7 @@
 from typing import final
 
 from linksurf.common.payload import Payload
+from linksurf.common.settings import Settings
 from linksurf.common.types import Response
 from linksurf.services import Services
 
@@ -20,18 +21,18 @@ class Component[T](Consumer, Producer):
         self.middlewares: list[Middleware] = []
         self.filters: list[Filter] = []
 
-    def on_start(self, services: Services):
+    def on_start(self, settings: Settings, services: Services):
         for rule in self.rules:
-            rule.on_start(services)
+            rule.on_start(settings, services)
 
         if self.deduplicator is not None:
-            self.deduplicator.on_start(services)
+            self.deduplicator.on_start(settings, services)
 
         for middleware in self.middlewares:
-            middleware.on_start(services)
+            middleware.on_start(settings, services)
 
         for filter in self.filters:
-            filter.on_start(services)
+            filter.on_start(settings, services)
 
     def on_stop(self):
         pass
@@ -78,7 +79,7 @@ class Component[T](Consumer, Producer):
 
 
 class Executor:
-    def on_start(self, services: Services):
+    def on_start(self, settings: Settings, services: Services):
         pass
 
     def on_stop(self):
@@ -133,7 +134,7 @@ class DeduplicatorResponse(Response[bool]):
 
 
 class Deduplicator:
-    def on_start(self, services: Services):
+    def on_start(self, settings: Settings, services: Services):
         pass
 
     def on_stop(self):

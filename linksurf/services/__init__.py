@@ -1,3 +1,4 @@
+from linksurf.common.settings import Settings
 from linksurf.services.base import Service
 from linksurf.services.blob import BlobStorage
 from linksurf.services.cache import Cache
@@ -12,10 +13,10 @@ class Services:
         self.cache = cache
         self.fetcher = fetcher
 
-    def connect(self):
+    def connect(self, settings: Settings):
         for value in vars(self).values():
             if isinstance(value, Service):
-                value.on_start()
+                value.on_start(settings)
 
     def disconnect(self):
         for value in vars(self).values():

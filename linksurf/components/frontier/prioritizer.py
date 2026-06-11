@@ -12,7 +12,7 @@ class MultiFactorPrioritizer(Prioritizer):
     database: Database
     cache: Cache
 
-    def on_start(self, services: Services):
+    def on_start(self, settings, services: Services):
         self.database = services.database
         self.cache = services.cache
 

@@ -4,6 +4,7 @@ from typing import Tuple
 import redis
 
 from linksurf.common.models import URL
+from linksurf.common.settings import Settings
 from linksurf.services.base import Service
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ class RedisCache(Cache):
         self.db = db
         self._client: redis.Redis | None = None
 
-    def on_start(self):
+    def on_start(self, settings: Settings):
         self._client = redis.Redis(host=self.host, port=self.port, db=self.db, decode_responses=True)
 
         print(f"Connected to Redis at {self.host}:{self.port}/{self.db}")

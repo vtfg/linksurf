@@ -1,6 +1,7 @@
 import logging
 
 from linksurf.common.payload import Payload
+from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component, Deduplicator
 from linksurf.components.frontier.deduplicator import URLDeduplicator
@@ -20,10 +21,10 @@ class Frontier(Component[Payload]):
         self.deduplicator: Deduplicator = URLDeduplicator()
         self.prioritizer: Prioritizer = MultiFactorPrioritizer()
 
-    def on_start(self, services: Services):
-        super().on_start(services)
+    def on_start(self, settings: Settings, services: Services):
+        super().on_start(settings, services)
 
-        self.prioritizer.on_start(services)
+        self.prioritizer.on_start(settings, services)
 
     def run(self, payload: Payload) -> Response[Payload]:
         priority_response = self.prioritizer.execute(payload)

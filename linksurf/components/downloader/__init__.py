@@ -3,6 +3,7 @@ import logging
 from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES
 from linksurf.common.models import HTTPRequest, MimeType
 from linksurf.common.payload import Content, Payload
+from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
 from linksurf.services import Services, Fetcher
@@ -21,8 +22,8 @@ class Downloader(Component[Payload]):
     def __init__(self):
         super().__init__()
 
-    def on_start(self, services: Services):
-        super().on_start(services)
+    def on_start(self, settings: Settings, services: Services):
+        super().on_start(settings, services)
 
         self.fetcher = services.fetcher
         self.blob_storage = services.blob_storage

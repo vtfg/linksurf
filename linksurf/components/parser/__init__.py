@@ -2,6 +2,7 @@ import logging
 
 from linksurf.common.models import URL, Link, MimeType
 from linksurf.common.payload import Payload
+from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
 from linksurf.components.parser.extractors import LinkExtractor
@@ -20,8 +21,8 @@ class Parser(Component[Payload]):
     def __init__(self):
         super().__init__()
 
-    def on_start(self, services: Services):
-        super().on_start(services)
+    def on_start(self, settings: Settings, services: Services):
+        super().on_start(settings, services)
 
         self.blob_storage = services.blob_storage
 
