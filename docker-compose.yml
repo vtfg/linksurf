@@ -24,6 +24,8 @@ services:
     restart: always
     volumes:
       - redis:/data
+    ports:
+      - '6379:6379'
     networks:
       - network
     healthcheck:
@@ -42,6 +44,9 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio:/data
+    ports:
+      - '9000:9000'
+      - '9001:9001'
     networks:
       - network
     healthcheck:
@@ -62,6 +67,9 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
     volumes:
       - rabbitmq:/var/lib/rabbitmq
+    ports:
+      - '5672:5672'
+      - '15672:15672'
     networks:
       - network
     healthcheck:
@@ -76,10 +84,10 @@ services:
     container_name: manager
     restart: always
     environment:
-      REDIS_URL: redis://redis:6379
-      MONGODB_URL: mongodb://root:root@mongodb:27017
-      MINIO_ENDPOINT: http://minio:9000
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: redis://localhost:6379
+      MONGODB_URL: mongodb://root:root@localhost:27017
+      MINIO_ENDPOINT: http://localhost:9000
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672/
       PROXY_URLS: ${PROXY_URLS}
     depends_on:
       mongodb:
@@ -108,8 +116,8 @@ services:
     restart: always
     environment:
       WORKER_ID: 0
-      MANAGER_URL: http://manager:47832
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      MANAGER_URL: http://localhost:47832
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
       manager:
@@ -124,8 +132,8 @@ services:
     restart: always
     environment:
       WORKER_ID: 1
-      MANAGER_URL: http://manager:47832
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      MANAGER_URL: http://localhost:47832
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
       manager:
@@ -140,8 +148,8 @@ services:
     restart: always
     environment:
       WORKER_ID: 2
-      MANAGER_URL: http://manager:47832
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      MANAGER_URL: http://localhost:47832
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
       manager:
@@ -156,8 +164,8 @@ services:
     restart: always
     environment:
       WORKER_ID: 3
-      MANAGER_URL: http://manager:47832
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      MANAGER_URL: http://localhost:47832
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
       manager:
