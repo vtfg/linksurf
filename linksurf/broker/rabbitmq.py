@@ -103,3 +103,7 @@ class RabbitMQBroker(Broker):
 
     def loop(self):
         self.channel.start_consuming()
+
+    def stop(self):
+        if self.channel is not None:
+            self.channel.stop_consuming()

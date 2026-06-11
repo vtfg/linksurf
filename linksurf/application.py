@@ -1,3 +1,5 @@
+import signal
+
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL
 from linksurf.common.payload import Payload
@@ -25,18 +27,28 @@ class Linksurf:
 
         self.broker.connect()
 
-        for component in [self.frontier, self.downloader, self.parser, self.storage]:
+        components = [self.frontier, self.downloader, self.parser, self.storage]
+
+        for component in components:
             component.on_start(self.settings, self.services)
 
-        # Order shouldn't matter. What matters is the component's CONSUMES_FROM and PRODUCES_TO.
-        self.broker.pipeline([
-            self.frontier,
-            self.downloader,
-            self.parser,
-            self.storage
-        ])
+        # Order don't matter. What matters is the component's CONSUMES_FROM and PRODUCES_TO.
+        self.broker.pipeline(components)
 
         for url in seed:
             self.broker.seed(Frontier.CONSUMES_FROM, Payload(url=url))
 
+        def shutdown(signum, frame):
+            self.broker.stop()
+
+        signal.signal(signal.SIGINT, shutdown)
+        signal.signal(signal.SIGTERM, shutdown)
+
         self.broker.loop()
+
+        for component in components:
+            component.on_stop()
+
+        self.broker.disconnect()
+
+        self.services.disconnect()
