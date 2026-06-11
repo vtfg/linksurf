@@ -8,7 +8,7 @@ from linksurf.models import (
     SubmitResultBody,
 )
 
-MANAGER_URL = get_env("MANAGER_URL", default="http://localhost:8000")
+MANAGER_URL = get_env("MANAGER_URL", default="http://localhost:47832")
 
 
 class ManagerClient:

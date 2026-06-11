@@ -25,7 +25,7 @@ from linksurf.models import (
 )
 
 HOST = get_env("MANAGER_HOST", default="0.0.0.0")
-PORT = get_env("MANAGER_PORT", cast=int, default=8000)
+PORT = get_env("MANAGER_PORT", cast=int, default=47832)
 PROXY_URLS = [url.strip() for url in get_env("PROXY_URLS").split(",")]
 
 queue: Queue | None = None

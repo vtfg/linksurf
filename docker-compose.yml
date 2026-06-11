@@ -24,8 +24,6 @@ services:
     restart: always
     volumes:
       - redis:/data
-    ports:
-      - '6379:6379'
     networks:
       - network
     healthcheck:
@@ -44,9 +42,6 @@ services:
     command: server /data --console-address ":9001"
     volumes:
       - minio:/data
-    ports:
-      - '9000:9000'
-      - '9001:9001'
     networks:
       - network
     healthcheck:
@@ -67,9 +62,6 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
     volumes:
       - rabbitmq:/var/lib/rabbitmq
-    ports:
-      - '5672:5672'
-      - '15672:15672'
     networks:
       - network
     healthcheck:
@@ -99,11 +91,11 @@ services:
       rabbitmq:
         condition: service_healthy
     ports:
-      - '8000:8000'
+      - '47832:47832'
     networks:
       - network
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:47832/health" ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -116,7 +108,7 @@ services:
     restart: always
     environment:
       WORKER_ID: 0
-      MANAGER_URL: http://manager:8000
+      MANAGER_URL: http://manager:47832
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
@@ -132,7 +124,7 @@ services:
     restart: always
     environment:
       WORKER_ID: 1
-      MANAGER_URL: http://manager:8000
+      MANAGER_URL: http://manager:47832
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
@@ -148,7 +140,7 @@ services:
     restart: always
     environment:
       WORKER_ID: 2
-      MANAGER_URL: http://manager:8000
+      MANAGER_URL: http://manager:47832
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
@@ -164,7 +156,7 @@ services:
     restart: always
     environment:
       WORKER_ID: 3
-      MANAGER_URL: http://manager:8000
+      MANAGER_URL: http://manager:47832
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       USER_AGENT: ${USER_AGENT}
     depends_on:
