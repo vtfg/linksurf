@@ -38,17 +38,47 @@ async def lifespan(app: FastAPI):
 
     global queue, proxy_pool
 
-    await init_database()
-    await init_redis()
-    await init_storage()
+    try:
+        await init_database()
+
+        print("Database initialized")
+    except Exception as e:
+        print(f"ERROR init_database: {e}")
+
+        raise
+
+    try:
+        await init_redis()
+
+        print("Redis initialized")
+    except Exception as e:
+        print(f"ERROR init_redis: {e}")
+
+        raise
+
+    try:
+        await init_storage()
+
+        print("Storage initialized")
+    except Exception as e:
+        print(f"ERROR init_storage: {e}")
+
+        raise
 
     print("Initializing proxy pool")
 
     proxy_pool = ProxyPool()
     await proxy_pool.setup(PROXY_URLS)
 
-    queue = Queue()
-    await queue.connect()
+    try:
+        queue = Queue()
+        await queue.connect()
+
+        print("Queue connected")
+    except Exception as e:
+        print(f"ERROR queue.connect: {e}")
+
+        raise
 
     yield
 
