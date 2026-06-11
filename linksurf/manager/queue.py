@@ -11,7 +11,7 @@ from linksurf.manager.geoip import is_brazilian_ip
 from linksurf.manager.prioritizer import Prioritizer
 from linksurf.manager.robots import Robots
 
-RABBITMQ_URL = get_env("RABBITMQ_URL", default="amqp://guest:guest@localhost:5672/")
+RABBITMQ_URL = get_env("RABBITMQ_URL")
 
 
 class Queue:
