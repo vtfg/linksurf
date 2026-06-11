@@ -32,8 +32,14 @@ queue: Queue | None = None
 proxy_pool: ProxyPool | None = None
 
 
+def _handle_async_exception(loop, context):
+    print(f"UNHANDLED ASYNC EXCEPTION: {context}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+    asyncio.get_event_loop().set_exception_handler(_handle_async_exception)
     print("Initializing app")
 
     global queue, proxy_pool
