@@ -27,3 +27,6 @@ class Broker:
     # Listens to topics and execute callbacks
     def loop(self):
         pass
+
+    def stop(self):
+        pass
