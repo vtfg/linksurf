@@ -1,4 +1,3 @@
-import logging
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -6,10 +5,10 @@ from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component, Filter
+from linksurf.events.bus import EventBus
+from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.database import Database
-
-logger = logging.getLogger(__name__)
 
 
 class Storage(Component[Payload]):
@@ -22,8 +21,8 @@ class Storage(Component[Payload]):
 
         self.filters: list[Filter] = []
 
-    def on_start(self, settings: Settings, services: Services):
-        super().on_start(settings, services)
+    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
+        super().on_start(settings, services, event_bus)
 
         self.database = services.database
 
@@ -35,12 +34,10 @@ class Storage(Component[Payload]):
 
         try:
             storage_id = self.database.save_url(data)
-
-            print(f"Saved page {payload.url.address}")
         except Exception as e:
-            logger.exception("Failed to save page %s", payload.url.address)
+            Logger().exception("Database save failed.")
 
-            return Response(None, Error("Failed to save page.", retriable=True))
+            return Response(None, Error("Database save failed.", retriable=True))
 
         payload.storage_id = storage_id
 

@@ -1,15 +1,13 @@
-import logging
-
 from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES
 from linksurf.common.models import HTTPRequest, MimeType
 from linksurf.common.payload import Content, Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
+from linksurf.events.bus import EventBus
+from linksurf.logger import Logger
 from linksurf.services import Services, Fetcher
 from linksurf.services.blob import BlobStorage
-
-logger = logging.getLogger(__name__)
 
 
 class Downloader(Component[Payload]):
@@ -22,8 +20,8 @@ class Downloader(Component[Payload]):
     def __init__(self):
         super().__init__()
 
-    def on_start(self, settings: Settings, services: Services):
-        super().on_start(settings, services)
+    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
+        super().on_start(settings, services, event_bus)
 
         self.fetcher = services.fetcher
         self.blob_storage = services.blob_storage
@@ -36,9 +34,9 @@ class Downloader(Component[Payload]):
         try:
             response = self.fetcher.http(request)
         except Exception as e:
-            logger.exception("Fetcher raised an exception for %s", url.address)
+            Logger().exception("HTTP fetch failed.")
 
-            return Response(None, Error("Fetch failed.", retriable=True))
+            return Response(None, Error("HTTP fetch failed.", retriable=True))
 
         if response is None:
             return Response(None, Error("Fetcher returned no response.", retriable=True))
@@ -53,14 +51,14 @@ class Downloader(Component[Payload]):
         try:
             self.blob_storage.upload(response.body, key, content_type=mime_type)
         except Exception as e:
-            logger.exception("Blob upload failed for %s", url.address)
+            Logger().exception("Blob upload failed.")
 
             return Response(None, Error("Blob upload failed.", retriable=True))
 
         try:
             type = MimeType(mime_type)
         except ValueError:
-            logger.exception("Mime type not supported: %s", mime_type)
+            Logger().exception(f"Mime type not supported: {mime_type}.")
 
             type = MimeType.UNKNOWN
 

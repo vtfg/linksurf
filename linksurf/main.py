@@ -18,6 +18,7 @@ from linksurf.components.frontier.rules import (
     BlockedDomainsRule,
     BLOCKED_EXTENSIONS,
 )
+from linksurf.events.listeners import LoggingListener
 from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
 from linksurf.services.cache import RedisCache
@@ -61,7 +62,11 @@ if __name__ == "__main__":
         user_agent="Linksurf/1.0",
     )
 
-    linksurf = Linksurf(services=services, broker=broker, settings=settings)
+    linksurf = Linksurf(settings=settings, services=services, broker=broker)
+
+    linksurf.listeners = [
+        LoggingListener(),
+    ]
 
     # Future implementation
     # Extensions contain a list of middlewares for the frontier and filters for both frontier and storage

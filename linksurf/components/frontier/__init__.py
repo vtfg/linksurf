@@ -1,14 +1,12 @@
-import logging
-
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component, Deduplicator
 from linksurf.components.frontier.deduplicator import URLDeduplicator
 from linksurf.components.frontier.prioritizer import Prioritizer, MultiFactorPrioritizer
+from linksurf.events.bus import EventBus
+from linksurf.logger import Logger
 from linksurf.services import Services
-
-logger = logging.getLogger(__name__)
 
 
 class Frontier(Component[Payload]):
@@ -21,8 +19,8 @@ class Frontier(Component[Payload]):
         self.deduplicator: Deduplicator = URLDeduplicator()
         self.prioritizer: Prioritizer = MultiFactorPrioritizer()
 
-    def on_start(self, settings: Settings, services: Services):
-        super().on_start(settings, services)
+    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
+        super().on_start(settings, services, event_bus)
 
         self.prioritizer.on_start(settings, services)
 
@@ -37,7 +35,7 @@ class Frontier(Component[Payload]):
         try:
             self.deduplicator.register(payload)
         except Exception:
-            logger.exception("Failed to mark URL %s as seen", payload.url.address)
+            Logger().exception(f"Failed to mark URL as seen.")
 
             return Response(None, Error("Failed to mark URL as seen.", retriable=True))
 

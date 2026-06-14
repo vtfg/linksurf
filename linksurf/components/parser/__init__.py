@@ -1,28 +1,26 @@
-import logging
-
 from linksurf.common.models import URL, Link, MimeType
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
 from linksurf.components.parser.extractors import LinkExtractor
+from linksurf.events.bus import EventBus
+from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.blob import BlobStorage
-
-logger = logging.getLogger(__name__)
 
 
 class Parser(Component[Payload]):
     CONSUMES_FROM = "page.parse"
-    PRODUCES_TO = ["url.process", "page.store"]
+    PRODUCES_TO = ["page.store", "url.process"]
 
     blob_storage: BlobStorage
 
     def __init__(self):
         super().__init__()
 
-    def on_start(self, settings: Settings, services: Services):
-        super().on_start(settings, services)
+    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
+        super().on_start(settings, services, event_bus)
 
         self.blob_storage = services.blob_storage
 
@@ -36,9 +34,9 @@ class Parser(Component[Payload]):
         try:
             contents = self.blob_storage.download(payload.content.key)
         except Exception as e:
-            logger.exception("Failed to download content for %s", payload.url.address)
+            Logger().exception("Blob download failed.")
 
-            return Response(None, Error("Failed to download content.", retriable=True))
+            return Response(None, Error("Blob download failed.", retriable=True))
 
         if contents is None:
             return Response(None, Error("Downloaded content is empty.", retriable=True))
@@ -47,13 +45,13 @@ class Parser(Component[Payload]):
 
         links: list[Link] = LinkExtractor.extract(source_url=payload.url, html=html)
 
-        print(f"Extracted {len(links)} links from {payload.url.address}")
+        Logger().debug("component.debug", message=f"Extracted {len(links)} links from {payload.url.address}")
 
         payload.add_metadata("links", [vars(link) for link in links])
 
         links_payloads = [Payload(url=URL(link.target)) for link in links]
 
         return Response({
-            "url.process": links_payloads,
             "page.store": payload,
+            "url.process": links_payloads,
         }, None)
