@@ -55,7 +55,7 @@ class RedisCache(Cache):
     def on_start(self, settings: Settings):
         self._client = redis.Redis(host=self.host, port=self.port, db=self.db, decode_responses=True)
 
-        print(f"Connected to Redis at {self.host}:{self.port}/{self.db}")
+        self._client.ping()
 
     def on_stop(self):
         if self._client is not None:

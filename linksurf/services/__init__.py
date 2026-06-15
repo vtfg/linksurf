@@ -1,4 +1,5 @@
 from linksurf.common.settings import Settings
+from linksurf.logger import Logger
 from linksurf.services.base import Service
 from linksurf.services.blob import BlobStorage
 from linksurf.services.cache import Cache
@@ -13,12 +14,34 @@ class Services:
         self.cache = cache
         self.fetcher = fetcher
 
-    def connect(self, settings: Settings):
+    def connect(self, settings: Settings) -> None:
         for value in vars(self).values():
-            if isinstance(value, Service):
-                value.on_start(settings)
+            if not isinstance(value, Service):
+                continue
 
-    def disconnect(self):
+            service_name = type(value).__name__
+
+            try:
+                value.on_start(settings)
+            except Exception:
+                Logger().exception("service.error", service=service_name, error="Service startup failed.")
+
+                raise
+
+            Logger().info("service.start", service=service_name)
+
+    def disconnect(self) -> None:
         for value in vars(self).values():
-            if isinstance(value, Service):
+            if not isinstance(value, Service):
+                continue
+
+            service_name = type(value).__name__
+
+            try:
                 value.on_stop()
+            except Exception:
+                Logger().exception("service.error", service=service_name, error="Service shutdown failed.")
+
+                raise
+
+            Logger().info("service.stop", service=service_name)

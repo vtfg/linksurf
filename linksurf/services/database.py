@@ -24,7 +24,7 @@ class MongoDatabase(Database):
         self._client = MongoClient(self.uri)
         self._database = self._client[self.name]
 
-        print(f"Connected to MongoDB at {self.uri} (db: {self.name})")
+        self._client.admin.command('ping')
 
     def on_stop(self):
         if self._client is not None:

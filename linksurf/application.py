@@ -10,6 +10,7 @@ from linksurf.components.parser import Parser
 from linksurf.components.storage import Storage
 from linksurf.events.bus import EventBus
 from linksurf.events.listeners import Listener
+from linksurf.logger import Logger
 from linksurf.services import Services
 
 
@@ -32,9 +33,25 @@ class Linksurf:
             for name in listener.EVENTS:
                 self.event_bus.on(name, listener.handle)
 
-        self.services.connect(self.settings)
+        Logger().info("application.start")
 
-        self.broker.connect()
+        try:
+            self.services.connect(self.settings)
+        except:
+            self.shutdown()
+
+            return
+
+        try:
+            self.broker.connect()
+        except:
+            Logger().exception("broker.error", error="Broker connection failed.")
+
+            self.shutdown()
+
+            return
+
+        Logger().info("broker.connect")
 
         components = [self.frontier, self.downloader, self.parser, self.storage]
 
@@ -47,17 +64,31 @@ class Linksurf:
         for url in seed:
             self.broker.seed(Frontier.CONSUMES_FROM, Payload(url=url))
 
-        def shutdown(signum, frame):
+        def on_signal(signum, frame):
+            Logger().info("application.shutdown")
+
             self.broker.stop()
 
-        signal.signal(signal.SIGINT, shutdown)
-        signal.signal(signal.SIGTERM, shutdown)
+        signal.signal(signal.SIGINT, on_signal)
+        signal.signal(signal.SIGTERM, on_signal)
 
         self.broker.loop()
+
+        self.shutdown()
+
+    def shutdown(self) -> None:
+        components = [self.frontier, self.downloader, self.parser, self.storage]
 
         for component in components:
             component.on_stop()
 
-        self.broker.disconnect()
+        try:
+            self.broker.disconnect()
+        except:
+            Logger().exception("broker.error", error="Broker disconnection failed.")
+        else:
+            Logger().info("broker.disconnect")
 
         self.services.disconnect()
+
+        Logger().info("application.stop")

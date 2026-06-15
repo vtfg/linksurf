@@ -44,10 +44,7 @@ class RabbitMQBroker(Broker):
                 result = _component.process(data)
 
                 if result is None or result.error is not None or result.data is None:
-                    print(f"Result from {_component.__class__.__name__} returned None or Error")
-
-                    if result.error:
-                        print(f"{result.error.message=} {result.error.retriable=}")
+                    # Redeliver retriable errors
 
                     return
 
