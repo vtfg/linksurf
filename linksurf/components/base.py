@@ -47,9 +47,9 @@ class Component[T](Consumer, Producer):
         from linksurf.events import (
             ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
             RuleStartEvent, RuleFinishEvent,
-            DeduplicatorStartEvent, DeduplicatorFinishEvent,
+            DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
             MiddlewareStartEvent, MiddlewareFinishEvent, MiddlewareErrorEvent,
-            FilterStartEvent, FilterFinishEvent, FilterErrorEvent
+            FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
         )
 
         correlation_id = payload.url.hash
@@ -85,12 +85,17 @@ class Component[T](Consumer, Producer):
 
             response = self.deduplicator.check(payload)
 
+            if response.error is not None:
+                self.event_bus.emit(
+                    DeduplicatorErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                           deduplicator=deduplicator_name, error=response.error.message,
+                                           retriable=response.error.retriable, exception=response.error.exception))
+
+                return Response(None, response.error)
+
             self.event_bus.emit(
                 DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                         deduplicator=deduplicator_name, seen=bool(response.data)))
-
-            if response.error is not None:
-                return Response(None, response.error)
 
             if response.data:
                 return Response(None, None)
@@ -109,7 +114,8 @@ class Component[T](Consumer, Producer):
                     MiddlewareErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                          middleware=middleware_name,
                                          error=response.error.message,
-                                         retriable=response.error.retriable))
+                                         retriable=response.error.retriable,
+                                         exception=response.error.exception))
 
                 return Response(None, response.error)
 
@@ -131,7 +137,8 @@ class Component[T](Consumer, Producer):
                 self.event_bus.emit(
                     FilterErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                      filter=filter_name, error=response.error.message,
-                                     retriable=response.error.retriable))
+                                     retriable=response.error.retriable,
+                                     exception=response.error.exception))
 
                 return Response(None, response.error)
 
@@ -150,7 +157,8 @@ class Component[T](Consumer, Producer):
             self.event_bus.emit(
                 ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                     error=result.error.message,
-                                    retriable=result.error.retriable))
+                                    retriable=result.error.retriable,
+                                    exception=result.error.exception))
         else:
             self.event_bus.emit(
                 ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,

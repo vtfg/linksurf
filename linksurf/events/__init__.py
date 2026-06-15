@@ -28,6 +28,7 @@ class ComponentErrorEvent:
     component: str
     error: str
     retriable: bool
+    exception: BaseException | None = None
     name: Literal["component.error"] = field(default="component.error", init=False)
 
 
@@ -70,6 +71,18 @@ class DeduplicatorFinishEvent:
 
 
 @dataclass
+class DeduplicatorErrorEvent:
+    correlation_id: str
+    url: str
+    component: str
+    deduplicator: str
+    error: str
+    retriable: bool
+    exception: BaseException | None = None
+    name: Literal["deduplicator.error"] = field(default="deduplicator.error", init=False)
+
+
+@dataclass
 class MiddlewareStartEvent:
     correlation_id: str
     url: str
@@ -96,6 +109,7 @@ class MiddlewareErrorEvent:
     middleware: str
     error: str
     retriable: bool
+    exception: BaseException | None = None
     name: Literal["middleware.error"] = field(default="middleware.error", init=False)
 
 
@@ -126,13 +140,14 @@ class FilterErrorEvent:
     filter: str
     error: str
     retriable: bool
+    exception: BaseException | None = None
     name: Literal["filter.error"] = field(default="filter.error", init=False)
 
 
 Event = Union[
     ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
     RuleStartEvent, RuleFinishEvent,
-    DeduplicatorStartEvent, DeduplicatorFinishEvent,
+    DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
     MiddlewareStartEvent, MiddlewareFinishEvent, MiddlewareErrorEvent,
-    FilterStartEvent, FilterFinishEvent, FilterErrorEvent
+    FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
 ]

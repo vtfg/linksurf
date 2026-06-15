@@ -5,7 +5,6 @@ from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component
 from linksurf.events.bus import EventBus
-from linksurf.logger import Logger
 from linksurf.services import Services, Fetcher
 from linksurf.services.blob import BlobStorage
 
@@ -34,12 +33,10 @@ class Downloader(Component[Payload]):
         try:
             response = self.fetcher.http(request)
         except Exception as e:
-            Logger().exception("HTTP fetch failed.")
-
-            return Response(None, Error("HTTP fetch failed.", retriable=True))
+            return Response(None, Error("HTTP fetch failed.", retriable=True, exception=e))
 
         if response is None:
-            return Response(None, Error("Fetcher returned no response.", retriable=True))
+            return Response(None, Error("HTTP fetch returned empty response.", retriable=True))
 
         if len(response.body) > TEN_MEGABYTES_IN_BYTES:  # Safety bound
             return Response(None, Error("Body exceeds maximum allowed size.", retriable=False))
@@ -51,15 +48,11 @@ class Downloader(Component[Payload]):
         try:
             self.blob_storage.upload(response.body, key, content_type=mime_type)
         except Exception as e:
-            Logger().exception("Blob upload failed.")
-
-            return Response(None, Error("Blob upload failed.", retriable=True))
+            return Response(None, Error("Blob upload failed.", retriable=True, exception=e))
 
         try:
             type = MimeType(mime_type)
         except ValueError:
-            Logger().exception(f"Mime type not supported: {mime_type}.")
-
             type = MimeType.UNKNOWN
 
         payload.content = Content(key=key, type=type)

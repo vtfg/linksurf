@@ -1,12 +1,8 @@
-import logging
-
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from linksurf.common.settings import Settings
 from linksurf.services.base import Service
-
-logger = logging.getLogger(__name__)
 
 
 class BlobStorage(Service):
@@ -49,8 +45,6 @@ class S3BlobStorage(BlobStorage):
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
                 self._client.create_bucket(Bucket=self.bucket)
-
-                logger.info("Created bucket %s", self.bucket)
             else:
                 raise
 
@@ -60,26 +54,14 @@ class S3BlobStorage(BlobStorage):
             self._client = None
 
     def upload(self, blob: bytes, key: str, content_type: str | None = None) -> None:
-        try:
-            args = {"Bucket": self.bucket, "Key": key, "Body": blob}
+        args = {"Bucket": self.bucket, "Key": key, "Body": blob}
 
-            if content_type:
-                args["ContentType"] = content_type
+        if content_type:
+            args["ContentType"] = content_type
 
-            self._client.put_object(**args)
-
-            logger.debug("Uploaded %d bytes to s3://%s/%s", len(blob), self.bucket, key)
-        except (BotoCoreError, ClientError):
-            logger.exception("Failed to upload to s3://%s/%s", self.bucket, key)
-
-            raise
+        self._client.put_object(**args)
 
     def download(self, key: str) -> bytes:
-        try:
-            response = self._client.get_object(Bucket=self.bucket, Key=key)
+        response = self._client.get_object(Bucket=self.bucket, Key=key)
 
-            return response["Body"].read()
-        except (BotoCoreError, ClientError) as e:
-            logger.exception("Failed to download from s3://%s/%s", self.bucket, key)
-
-            raise
+        return response["Body"].read()

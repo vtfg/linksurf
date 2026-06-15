@@ -6,7 +6,6 @@ from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component, Filter
 from linksurf.events.bus import EventBus
-from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.database import Database
 
@@ -35,9 +34,7 @@ class Storage(Component[Payload]):
         try:
             storage_id = self.database.save_url(data)
         except Exception as e:
-            Logger().exception("Database save failed.")
-
-            return Response(None, Error("Database save failed.", retriable=True))
+            return Response(None, Error("Database write failed.", retriable=True, exception=e))
 
         payload.storage_id = storage_id
 

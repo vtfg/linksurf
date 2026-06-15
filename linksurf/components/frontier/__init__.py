@@ -5,7 +5,6 @@ from linksurf.components.base import Component, Deduplicator
 from linksurf.components.frontier.deduplicator import URLDeduplicator
 from linksurf.components.frontier.prioritizer import Prioritizer, MultiFactorPrioritizer
 from linksurf.events.bus import EventBus
-from linksurf.logger import Logger
 from linksurf.services import Services
 
 
@@ -34,9 +33,7 @@ class Frontier(Component[Payload]):
 
         try:
             self.deduplicator.register(payload)
-        except Exception:
-            Logger().exception(f"Failed to mark URL as seen.")
-
-            return Response(None, Error("Failed to mark URL as seen.", retriable=True))
+        except Exception as e:
+            return Response(None, Error("Cache write failed.", retriable=True, exception=e))
 
         return Response(payload, None)

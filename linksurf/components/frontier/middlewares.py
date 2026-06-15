@@ -1,4 +1,3 @@
-import logging
 from urllib.robotparser import RobotFileParser
 
 from linksurf.common.models import HTTPRequest, MimeType
@@ -8,8 +7,6 @@ from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
 from linksurf.services import Services, Fetcher, Cache
 from linksurf.utils.dns import check_domain_availability
-
-logger = logging.getLogger(__name__)
 
 
 class DNSMiddleware(Middleware):
@@ -29,9 +26,7 @@ class DNSMiddleware(Middleware):
         try:
             cached = self.cache.get_domain_status(domain, port)
         except Exception as e:
-            logger.exception("Cache raised an exception for %s", payload.url.domain)
-
-            return MiddlewareResponse(None, Error("Failed to retrieve domain status from cache.", retriable=True))
+            return MiddlewareResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
         if cached:
             available, ip = cached
@@ -41,9 +36,7 @@ class DNSMiddleware(Middleware):
             try:
                 self.cache.save_domain_status(domain, port, available, ip)
             except Exception as e:
-                logger.exception("Cache raised an exception for %s", payload.url.domain)
-
-                return MiddlewareResponse(None, Error("Failed to save domain status to cache.", retriable=True))
+                return MiddlewareResponse(None, Error("Cache write failed.", retriable=True, exception=e))
 
         if not available or ip is None:
             return MiddlewareResponse(None, Error("URL is invalid or unreachable.", retriable=True))
@@ -84,9 +77,7 @@ class RobotsExclusionMiddleware(Middleware):
         try:
             cached = self.cache.get_domain_robots_txt(payload.url.domain)
         except Exception as e:
-            logger.exception("Cache raised an exception for %s", payload.url.domain)
-
-            return MiddlewareResponse(None, Error("Failed to retrieve robots.txt from cache.", retriable=True))
+            return MiddlewareResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
         if cached:
             parser = self._build_parser(cached)
@@ -105,14 +96,12 @@ class RobotsExclusionMiddleware(Middleware):
         try:
             response = self.fetcher.http(request)
         except Exception as e:
-            logger.exception("Fetcher raised an exception for %s", robots_url)
-
-            return MiddlewareResponse(None, Error("Fetch failed.", retriable=True))
+            return MiddlewareResponse(None, Error("HTTP fetch failed.", retriable=True, exception=e))
 
         status = response.status_code
 
         if status == 403:
-            return MiddlewareResponse(None, Error("robots.txt access denied.", retriable=True))
+            return MiddlewareResponse(None, Error("Robots Exclusion Protocol access denied.", retriable=True))
 
         if 400 <= status < 500:
             payload.add_metadata("robots", {"available": False, "can_fetch": True})
@@ -137,9 +126,7 @@ class RobotsExclusionMiddleware(Middleware):
         try:
             self.cache.save_domain_robots_txt(payload.url.domain, response.text)
         except Exception as e:
-            logger.exception("Cache raised an exception for %s", payload.url.domain)
-
-            return MiddlewareResponse(None, Error("Failed to save robots.txt to cache.", retriable=True))
+            return MiddlewareResponse(None, Error("Cache write failed.", retriable=True, exception=e))
 
         payload.add_metadata("robots", {"available": True, "can_fetch": can_fetch, "delay": delay})
 

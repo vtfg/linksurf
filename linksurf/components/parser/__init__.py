@@ -34,12 +34,10 @@ class Parser(Component[Payload]):
         try:
             contents = self.blob_storage.download(payload.content.key)
         except Exception as e:
-            Logger().exception("Blob download failed.")
-
-            return Response(None, Error("Blob download failed.", retriable=True))
+            return Response(None, Error("Blob download failed.", retriable=True, exception=e))
 
         if contents is None:
-            return Response(None, Error("Downloaded content is empty.", retriable=True))
+            return Response(None, Error("Blob downloaded content is empty.", retriable=True))
 
         html = contents.decode(payload.response.encoding)
 

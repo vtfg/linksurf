@@ -1,4 +1,3 @@
-import logging
 import time
 
 from linksurf.common.models import HTTPRequest
@@ -6,8 +5,6 @@ from linksurf.common.payload import Payload
 from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
 from linksurf.services import Fetcher, Cache, Services
-
-logger = logging.getLogger(__name__)
 
 
 class ContentTypeMiddleware(Middleware):
@@ -28,9 +25,7 @@ class ContentTypeMiddleware(Middleware):
         try:
             response = self.fetcher.http(request)
         except Exception as e:
-            logger.exception("Fetcher raised an exception for %s", url)
-
-            return MiddlewareResponse(None, Error("Fetch failed.", retriable=True))
+            return MiddlewareResponse(None, Error("HTTP fetch failed.", retriable=True, exception=e))
 
         mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 
@@ -67,25 +62,19 @@ class RateLimiterMiddleware(Middleware):
 
         try:
             last_fetch = self.cache.get_domain_last_fetch(domain, port)
-        except Exception:
-            logger.exception("Cache raised an exception for %s", domain)
-
-            return MiddlewareResponse(None, Error("Failed to retrieve last fetch time from cache.", retriable=True))
+        except Exception as e:
+            return MiddlewareResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
         if last_fetch is not None:
             elapsed = time.monotonic() - last_fetch
 
             if elapsed < delay:
-                print(f"Waiting {delay - elapsed} seconds")
-
                 time.sleep(delay - elapsed)
 
         try:
             self.cache.save_domain_last_fetch(domain, port, time.monotonic())
-        except Exception:
-            logger.exception("Cache raised an exception for %s", domain)
-
-            return MiddlewareResponse(None, Error("Failed to save last fetch time to cache.", retriable=True))
+        except Exception as e:
+            return MiddlewareResponse(None, Error("Cache write failed.", retriable=True, exception=e))
 
         return MiddlewareResponse(payload, None)
 
@@ -108,9 +97,7 @@ class ContentLengthMiddleware(Middleware):
         try:
             response = self.fetcher.http(request)
         except Exception as e:
-            logger.exception("Fetcher raised an exception for %s", url)
-
-            return MiddlewareResponse(None, Error("Fetch failed.", retriable=True))
+            return MiddlewareResponse(None, Error("HTTP fetch failed.", retriable=True, exception=e))
 
         raw_length = response.content_length
 
@@ -128,10 +115,8 @@ class ContentLengthMiddleware(Middleware):
 
         try:
             length = self._parse_length(raw_length)
-        except Exception:
-            logger.exception("Content-Length parse failed for %s", url)
-
-            return MiddlewareResponse(None, Error("Invalid content length.", retriable=False))
+        except Exception as e:
+            return MiddlewareResponse(None, Error("Invalid content length.", retriable=False, exception=e))
 
         payload.add_metadata("content_length", {"value": length, "chunked": False})
 

@@ -15,10 +15,14 @@ class LoggingListener(Listener):
     EVENTS = ["*"]
 
     def handle(self, event: Event) -> None:
+        exception = getattr(event, "exception", None)
         data = asdict(event)
         name = data.pop("name")
+        data.pop("exception", None)
 
         if name.endswith(".error"):
-            Logger().error(name, **data)
+            exc_info = (type(exception), exception, exception.__traceback__) if exception else None
+
+            Logger().error(name, exc_info=exc_info, **data)
         else:
             Logger().info(name, **data)

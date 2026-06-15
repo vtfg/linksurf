@@ -1,11 +1,7 @@
-import logging
-
 from linksurf.common.payload import Payload
 from linksurf.common.types import Error
 from linksurf.components.base import Deduplicator, DeduplicatorResponse
 from linksurf.services import Cache, Services
-
-logger = logging.getLogger(__name__)
 
 
 class URLDeduplicator(Deduplicator):
@@ -17,10 +13,8 @@ class URLDeduplicator(Deduplicator):
     def check(self, payload: Payload) -> DeduplicatorResponse:
         try:
             seen = self.cache.is_url_seen(payload.url)
-        except Exception:
-            logger.exception("Cache lookup failed for %s", payload.url.address)
-
-            return DeduplicatorResponse(None, Error("Cache lookup failed.", retriable=True))
+        except Exception as e:
+            return DeduplicatorResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
         return DeduplicatorResponse(seen, None)
 

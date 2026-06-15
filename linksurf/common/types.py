@@ -1,9 +1,8 @@
 class Error:
-    retriable: bool
-
-    def __init__(self, message: str, retriable: bool = True):
+    def __init__(self, message: str, retriable: bool = True, exception: BaseException | None = None):
         self.message = message
         self.retriable = retriable
+        self.exception = exception
 
 
 class Response[T]:

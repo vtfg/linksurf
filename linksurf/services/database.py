@@ -1,12 +1,8 @@
-import logging
-
 from pymongo import MongoClient
 from pymongo.database import Database as MongoDb
 
 from linksurf.common.settings import Settings
 from linksurf.services.base import Service
-
-logger = logging.getLogger(__name__)
 
 
 class Database(Service):

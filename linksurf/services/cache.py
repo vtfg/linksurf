@@ -1,4 +1,3 @@
-import logging
 from typing import Tuple
 
 import redis
@@ -6,8 +5,6 @@ import redis
 from linksurf.common.models import URL
 from linksurf.common.settings import Settings
 from linksurf.services.base import Service
-
-logger = logging.getLogger(__name__)
 
 ONE_DAY_IN_SECONDS = 60 * 60 * 24
 
