@@ -1,11 +1,8 @@
 from linksurf.common.payload import Payload
-from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
-from linksurf.components.base import Component, Deduplicator
+from linksurf.components.base import Component
 from linksurf.components.frontier.deduplicator import URLDeduplicator
-from linksurf.components.frontier.prioritizer import Prioritizer, MultiFactorPrioritizer
-from linksurf.events.bus import EventBus
-from linksurf.services import Services
+from linksurf.components.frontier.prioritizer import MultiFactorPrioritizer
 
 
 class Frontier(Component[Payload]):
@@ -15,22 +12,10 @@ class Frontier(Component[Payload]):
     def __init__(self):
         super().__init__()
 
-        self.deduplicator: Deduplicator = URLDeduplicator()
-        self.prioritizer: Prioritizer = MultiFactorPrioritizer()
-
-    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
-        super().on_start(settings, services, event_bus)
-
-        self.prioritizer.on_start(settings, services)
+        self.deduplicator = URLDeduplicator()
+        self.prioritizer = MultiFactorPrioritizer()
 
     def run(self, payload: Payload) -> Response[Payload]:
-        priority_response = self.prioritizer.execute(payload)
-
-        if priority_response.error is not None:
-            return Response(None, priority_response.error)
-
-        payload.priority = priority_response.data
-
         try:
             self.deduplicator.register(payload)
         except Exception as e:

@@ -17,12 +17,14 @@ class Producer:
 
 
 class Component[T](Consumer, Producer):
+    event_bus: EventBus
+
     def __init__(self):
-        self.event_bus: EventBus
         self.rules: list[Rule] = []
         self.deduplicator: Deduplicator | None = None
         self.middlewares: list[Middleware] = []
         self.filters: list[Filter] = []
+        self.prioritizer: Prioritizer | None = None
 
     def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
         self.event_bus = event_bus
@@ -39,6 +41,9 @@ class Component[T](Consumer, Producer):
         for filter in self.filters:
             filter.on_start(settings, services)
 
+        if self.prioritizer is not None:
+            self.prioritizer.on_start(settings, services)
+
     def on_stop(self):
         pass
 
@@ -50,6 +55,7 @@ class Component[T](Consumer, Producer):
             DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
             MiddlewareStartEvent, MiddlewareFinishEvent, MiddlewareErrorEvent,
             FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
+            PrioritizerStartEvent, PrioritizerFinishEvent, PrioritizerErrorEvent,
         )
 
         correlation_id = payload.url.hash
@@ -159,10 +165,39 @@ class Component[T](Consumer, Producer):
                                     error=result.error.message,
                                     retriable=result.error.retriable,
                                     exception=result.error.exception))
-        else:
-            self.event_bus.emit(
-                ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                     duration_ms=duration_ms))
+            return result
+
+        if self.prioritizer is not None:
+            prioritizer_name = type(self.prioritizer).__name__
+
+            self.event_bus.emit(PrioritizerStartEvent(
+                correlation_id=correlation_id, url=url,
+                component=component_name, prioritizer=prioritizer_name,
+            ))
+
+            response = self.prioritizer.execute(result.data)
+
+            if response.error is not None:
+                self.event_bus.emit(PrioritizerErrorEvent(
+                    correlation_id=correlation_id, url=url,
+                    component=component_name, prioritizer=prioritizer_name,
+                    error=response.error.message,
+                    retriable=response.error.retriable,
+                    exception=response.error.exception,
+                ))
+                return Response(None, response.error)
+
+            result.data.priority = response.data
+
+            self.event_bus.emit(PrioritizerFinishEvent(
+                correlation_id=correlation_id, url=url,
+                component=component_name, prioritizer=prioritizer_name,
+                priority=response.data,
+            ))
+
+        self.event_bus.emit(
+            ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                 duration_ms=duration_ms))
 
         return result
 

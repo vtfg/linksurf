@@ -144,10 +144,42 @@ class FilterErrorEvent:
     name: Literal["filter.error"] = field(default="filter.error", init=False)
 
 
+@dataclass
+class PrioritizerStartEvent:
+    correlation_id: str
+    url: str
+    component: str
+    prioritizer: str
+    name: Literal["prioritizer.start"] = field(default="prioritizer.start", init=False)
+
+
+@dataclass
+class PrioritizerFinishEvent:
+    correlation_id: str
+    url: str
+    component: str
+    prioritizer: str
+    priority: int
+    name: Literal["prioritizer.finish"] = field(default="prioritizer.finish", init=False)
+
+
+@dataclass
+class PrioritizerErrorEvent:
+    correlation_id: str
+    url: str
+    component: str
+    prioritizer: str
+    error: str
+    retriable: bool
+    exception: BaseException | None = None
+    name: Literal["prioritizer.error"] = field(default="prioritizer.error", init=False)
+
+
 Event = Union[
     ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
     RuleStartEvent, RuleFinishEvent,
     DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
     MiddlewareStartEvent, MiddlewareFinishEvent, MiddlewareErrorEvent,
     FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
+    PrioritizerStartEvent, PrioritizerFinishEvent, PrioritizerErrorEvent,
 ]
