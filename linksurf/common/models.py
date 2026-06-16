@@ -98,6 +98,7 @@ class HTTPResponseSummary:
     headers: dict[str, str]
     encoding: str
     elapsed_ms: float
+    size_bytes: int
     redirects: list[str]
 
     def __post_init__(self):
@@ -148,6 +149,7 @@ class HTTPResponse:
             headers=self.headers,
             encoding=self.encoding,
             elapsed_ms=self.elapsed_ms,
+            size_bytes=len(self.body),
             redirects=self.redirects,
         )
 

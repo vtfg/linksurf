@@ -6,6 +6,7 @@ import pika.spec
 from pika.adapters.blocking_connection import BlockingChannel
 
 from linksurf.broker.base import Broker
+from linksurf.common.constants import MAX_QUEUE_PRIORITY
 from linksurf.common.payload import Payload
 from linksurf.components.base import Component
 
@@ -73,7 +74,7 @@ class RabbitMQBroker(Broker):
         self.publish(topic, data)
 
     def subscribe(self, topic: str, handler: Callable[[Any], Any]):
-        self.channel.queue_declare(queue=topic, durable=True)
+        self.channel.queue_declare(queue=topic, durable=True, arguments={"x-max-priority": MAX_QUEUE_PRIORITY})
         self.channel.queue_bind(exchange=EXCHANGE, queue=topic, routing_key=topic)
 
         def callback(
@@ -95,7 +96,10 @@ class RabbitMQBroker(Broker):
             exchange=EXCHANGE,
             routing_key=topic,
             body=json.dumps(data.to_dict()).encode(),
-            properties=pika.BasicProperties(delivery_mode=pika.DeliveryMode.Persistent),
+            properties=pika.BasicProperties(
+                delivery_mode=pika.DeliveryMode.Persistent,
+                priority=getattr(data, "priority", 0),
+            ),
         )
 
     def loop(self):

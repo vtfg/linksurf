@@ -7,6 +7,7 @@ from linksurf.common.types import Response, Error
 from linksurf.components.base import Component, Filter
 from linksurf.events.bus import EventBus
 from linksurf.services import Services
+from linksurf.services.cache import Cache
 from linksurf.services.database import Database
 
 
@@ -14,6 +15,7 @@ class Storage(Component[Payload]):
     CONSUMES_FROM = "page.store"
 
     database: Database
+    cache: Cache
 
     def __init__(self):
         super().__init__()
@@ -24,10 +26,11 @@ class Storage(Component[Payload]):
         super().on_start(settings, services, event_bus)
 
         self.database = services.database
+        self.cache = services.cache
 
     def run(self, payload: Payload) -> Response[Payload]:
-        if payload.content is None:
-            return Response(None, Error("Payload has no content.", retriable=False))
+        if payload.content is None or payload.response is None:
+            return Response(None, Error("Payload has no content or response.", retriable=False))
 
         data = self._build_data(payload)
 
@@ -37,6 +40,16 @@ class Storage(Component[Payload]):
             return Response(None, Error("Database write failed.", retriable=True, exception=e))
 
         payload.storage_id = storage_id
+
+        try:
+            self.cache.update_domain_metrics(
+                payload.url.domain,
+                payload.url.port,
+                payload.response.elapsed_ms,
+                payload.response.size_bytes,
+            )
+        except Exception as e:
+            return Response(None, Error("Cache write failed.", retriable=True, exception=e))
 
         return Response(payload, None)
 
