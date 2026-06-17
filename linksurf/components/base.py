@@ -63,7 +63,8 @@ class Component[T](Consumer, Producer):
         component_name = type(self).__name__
         start_time = time.monotonic()
 
-        self.event_bus.emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name))
+        self.event_bus.emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                retrying=payload.retrying, retries=payload.retries))
 
         for rule in self.rules:
             rule_name = type(rule).__name__
@@ -164,6 +165,8 @@ class Component[T](Consumer, Producer):
                 ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                     error=result.error.message,
                                     retriable=result.error.retriable,
+                                    retrying=payload.retrying,
+                                    retries=payload.retries,
                                     exception=result.error.exception))
             return result
 
@@ -197,7 +200,9 @@ class Component[T](Consumer, Producer):
 
         self.event_bus.emit(
             ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                 duration_ms=duration_ms))
+                                 duration_ms=duration_ms,
+                                 retrying=payload.retrying,
+                                 retries=payload.retries))
 
         return result
 

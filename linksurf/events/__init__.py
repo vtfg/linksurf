@@ -9,6 +9,8 @@ class ComponentStartEvent:
     correlation_id: str
     url: str
     component: str
+    retrying: bool
+    retries: int
     name: Literal["component.start"] = field(default="component.start", init=False)
 
 
@@ -18,6 +20,8 @@ class ComponentFinishEvent:
     url: str
     component: str
     duration_ms: float
+    retrying: bool
+    retries: int
     name: Literal["component.finish"] = field(default="component.finish", init=False)
 
 
@@ -28,6 +32,8 @@ class ComponentErrorEvent:
     component: str
     error: str
     retriable: bool
+    retrying: bool
+    retries: int
     exception: BaseException | None = None
     name: Literal["component.error"] = field(default="component.error", init=False)
 

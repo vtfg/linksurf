@@ -6,6 +6,7 @@ from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
 from linksurf.services import Services, Fetcher, Cache
+from linksurf.services.cache import ONE_DAY_IN_SECONDS
 from linksurf.utils.dns import check_domain_availability
 
 
@@ -39,7 +40,8 @@ class DNSMiddleware(Middleware):
                 return MiddlewareResponse(None, Error("Cache write failed.", retriable=True, exception=e))
 
         if not available or ip is None:
-            return MiddlewareResponse(None, Error("URL is invalid or unreachable.", retriable=True))
+            return MiddlewareResponse(None, Error("URL is invalid or unreachable.", retriable=True,
+                                                  delay_seconds=ONE_DAY_IN_SECONDS))
 
         payload.add_metadata("dns", {"available": True, "ip": ip})
 
@@ -101,7 +103,8 @@ class RobotsExclusionMiddleware(Middleware):
         status = response.status_code
 
         if status == 403:
-            return MiddlewareResponse(None, Error("Robots Exclusion Protocol access denied.", retriable=True))
+            return MiddlewareResponse(None, Error("Robots Exclusion Protocol access denied.", retriable=True,
+                                                  delay_seconds=ONE_DAY_IN_SECONDS))
 
         if 400 <= status < 500:
             payload.add_metadata("robots", {"available": False, "can_fetch": True})
@@ -116,7 +119,8 @@ class RobotsExclusionMiddleware(Middleware):
         mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 
         if mime_type != MimeType.TEXT:
-            return MiddlewareResponse(None, Error("Invalid content type.", retriable=True))
+            return MiddlewareResponse(None, Error("Invalid content type.", retriable=True,
+                                                  delay_seconds=ONE_DAY_IN_SECONDS))
 
         parser = self._build_parser(response.text)
 

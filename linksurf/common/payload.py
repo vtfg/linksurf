@@ -11,6 +11,8 @@ class Payload:
             self,
             url: URL,
             priority: int = 0,
+            retrying: bool = False,
+            retries: int = 0,
             content: Content | None = None,
             request: HTTPRequestSummary | None = None,
             response: HTTPResponseSummary | None = None,
@@ -22,6 +24,8 @@ class Payload:
 
         self.url = url
         self.priority = priority
+        self.retrying = retrying
+        self.retries = retries
         self.content = content
         self.request = request
         self.response = response
@@ -42,6 +46,8 @@ class Payload:
         return {
             "url": self.url.address,
             "priority": self.priority,
+            "retrying": self.retrying,
+            "retries": self.retries,
             "content": asdict(self.content) if self.content else None,
             "request": asdict(self.request) if self.request else None,
             "response": asdict(self.response) if self.response else None,
@@ -58,6 +64,8 @@ class Payload:
         return cls(
             url=URL(data["url"]),
             priority=data.get("priority", 0),
+            retrying=data.get("retrying", False),
+            retries=data.get("retries", 0),
             content=Content(**content) if content else None,
             request=HTTPRequestSummary(**request) if request else None,
             response=HTTPResponseSummary(**response) if response else None,

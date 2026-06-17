@@ -1,8 +1,13 @@
 class Error:
-    def __init__(self, message: str, retriable: bool = True, exception: BaseException | None = None):
+    def __init__(self,
+                 message: str,
+                 retriable: bool = True,
+                 exception: BaseException | None = None,
+                 delay_seconds: int | None = None):
         self.message = message
         self.retriable = retriable
         self.exception = exception
+        self.delay_seconds = delay_seconds
 
 
 class Response[T]:

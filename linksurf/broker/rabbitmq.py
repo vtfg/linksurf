@@ -6,9 +6,10 @@ import pika.spec
 from pika.adapters.blocking_connection import BlockingChannel
 
 from linksurf.broker.base import Broker
-from linksurf.common.constants import MAX_QUEUE_PRIORITY
+from linksurf.common.constants import MAX_QUEUE_PRIORITY, MIN_QUEUE_PRIORITY, MAX_RETRIES
 from linksurf.common.payload import Payload
 from linksurf.components.base import Component
+from linksurf.logger import Logger
 
 EXCHANGE = "linksurf.exchange"
 
@@ -41,39 +42,64 @@ class RabbitMQBroker(Broker):
         self.components = components
 
         for component in components:
-            def handler(data: Any, _component: Component = component):
+            topic = component.CONSUMES_FROM
+
+            def handler(data: Payload, _component: Component = component, _topic: str = topic):
+                if data.retrying:
+                    # increment before processing so events reflect the current retry count
+                    data.retries += 1
+
                 result = _component.process(data)
 
-                if result is None or result.error is not None or result.data is None:
-                    # Redeliver retriable errors
+                if result.error is not None:
+                    error = result.error
+
+                    if error.retriable and data.retries < MAX_RETRIES:
+                        data.retrying = True
+                        data.priority = max(MIN_QUEUE_PRIORITY, data.priority - 1)
+
+                        if error.delay_seconds:
+                            self.delayed_publish(_topic, data, error.delay_seconds)
+                        else:
+                            self.publish(_topic, data)
+                    else:
+                        Logger().warning(
+                            "broker.discard",
+                            url=data.url.address,
+                            topic=_topic,
+                            retries=data.retries,
+                            reason=error.message,
+                            retriable=error.retriable,
+                        )
 
                     return
 
-                if isinstance(result.data, dict):
-                    for topic, payloads in result.data.items():
-                        items = payloads if isinstance(payloads, list) else [payloads]
-                        for payload in items:
-                            self.publish(topic, payload)
+                if result.data is not None:
+                    result.data.retries = 0
+                    result.data.retrying = False
 
-                    return
+                    if isinstance(result.data, dict):
+                        for next_topic, payloads in result.data.items():
+                            items = payloads if isinstance(payloads, list) else [payloads]
 
-                produces_to = getattr(_component, "PRODUCES_TO", None)
+                            for payload in items:
+                                self.publish(next_topic, payload)
+                    else:
+                        produces_to = getattr(_component, "PRODUCES_TO", None)
 
-                if produces_to is None:
-                    return
+                        if produces_to is not None:
+                            if isinstance(produces_to, list):
+                                for next_topic in produces_to:
+                                    self.publish(next_topic, result.data)
+                            else:
+                                self.publish(produces_to, result.data)
 
-                if isinstance(produces_to, list):
-                    for topic in produces_to:
-                        self.publish(topic, result.data)
-                else:
-                    self.publish(produces_to, result.data)
-
-            self.subscribe(component.CONSUMES_FROM, handler)
+            self.subscribe(topic, handler)
 
     def seed(self, topic: str, data: Any):
         self.publish(topic, data)
 
-    def subscribe(self, topic: str, handler: Callable[[Any], Any]):
+    def subscribe(self, topic: str, handler: Callable[[Payload], None]):
         self.channel.queue_declare(queue=topic, durable=True, arguments={"x-max-priority": MAX_QUEUE_PRIORITY})
         self.channel.queue_bind(exchange=EXCHANGE, queue=topic, routing_key=topic)
 
@@ -95,6 +121,29 @@ class RabbitMQBroker(Broker):
         self.channel.basic_publish(
             exchange=EXCHANGE,
             routing_key=topic,
+            body=json.dumps(data.to_dict()).encode(),
+            properties=pika.BasicProperties(
+                delivery_mode=pika.DeliveryMode.Persistent,
+                priority=getattr(data, "priority", 0),
+            ),
+        )
+
+    def delayed_publish(self, topic: str, data: Any, delay_seconds: int):
+        delay_queue = f"{topic}.delay.{delay_seconds}"
+
+        self.channel.queue_declare(
+            queue=delay_queue,
+            durable=True,
+            arguments={
+                "x-message-ttl": delay_seconds * 1000,
+                "x-dead-letter-exchange": EXCHANGE,
+                "x-dead-letter-routing-key": topic,
+            },
+        )
+
+        self.channel.basic_publish(
+            exchange="",
+            routing_key=delay_queue,
             body=json.dumps(data.to_dict()).encode(),
             properties=pika.BasicProperties(
                 delivery_mode=pika.DeliveryMode.Persistent,
