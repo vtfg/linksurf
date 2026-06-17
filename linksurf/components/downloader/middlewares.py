@@ -30,7 +30,7 @@ class ContentTypeMiddleware(Middleware):
         mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 
         if mime_type is None:
-            return MiddlewareResponse(None, Error("Unknown content type.", retriable=True))
+            return MiddlewareResponse(None, Error("Unknown content type.", retriable=False))
 
         payload.add_metadata("content_type", mime_type)
 

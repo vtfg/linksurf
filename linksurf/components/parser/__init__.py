@@ -37,7 +37,7 @@ class Parser(Component[Payload]):
             return Response(None, Error("Blob download failed.", retriable=True, exception=e))
 
         if contents is None:
-            return Response(None, Error("Blob downloaded content is empty.", retriable=True))
+            return Response(None, Error("Blob downloaded content is empty.", retriable=False))
 
         html = contents.decode(payload.response.encoding)
 
