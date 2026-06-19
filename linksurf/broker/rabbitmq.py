@@ -75,16 +75,19 @@ class RabbitMQBroker(Broker):
                     return
 
                 if result.data is not None:
-                    result.data.retries = 0
-                    result.data.retrying = False
-
                     if isinstance(result.data, dict):
-                        for next_topic, payloads in result.data.items():
-                            items = payloads if isinstance(payloads, list) else [payloads]
+                        for next_topic, data in result.data.items():
+                            payloads = data if isinstance(data, list) else [data]
 
-                            for payload in items:
+                            for payload in payloads:
+                                payload.retries = 0
+                                payload.retrying = False
+
                                 self.publish(next_topic, payload)
                     else:
+                        result.data.retries = 0
+                        result.data.retrying = False
+
                         produces_to = getattr(_component, "PRODUCES_TO", None)
 
                         if produces_to is not None:
