@@ -7,6 +7,7 @@ from linksurf.common.types import Error
 from linksurf.components.base import Middleware, MiddlewareResponse
 from linksurf.services import Services, Fetcher, Cache
 from linksurf.services.cache import ONE_DAY_IN_SECONDS
+from linksurf.services.fetcher import MaxRedirectsError
 from linksurf.utils.dns import check_domain_availability
 
 
@@ -93,10 +94,14 @@ class RobotsExclusionMiddleware(Middleware):
 
         robots_url = f"{payload.url.origin}/robots.txt"
 
-        request = HTTPRequest(url=robots_url)
+        request = HTTPRequest(url=robots_url, follow_redirects=True)
 
         try:
             response = self.fetcher.http(request)
+        except MaxRedirectsError:
+            payload.add_metadata("robots", {"available": False, "can_fetch": True})
+
+            return MiddlewareResponse(payload, None)
         except Exception as e:
             return MiddlewareResponse(None, Error("HTTP fetch failed.", retriable=True, exception=e))
 

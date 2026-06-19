@@ -92,6 +92,14 @@ class HTTPRequest:
         )
 
 
+@dataclass
+class Redirect:
+    source: str
+    target: str
+    status_code: int
+    depth: int
+
+
 @dataclass(frozen=True)
 class HTTPResponseSummary:
     status_code: int
@@ -99,7 +107,7 @@ class HTTPResponseSummary:
     encoding: str
     elapsed_ms: float
     size_bytes: int
-    redirects: list[str]
+    redirects: list[Redirect]
 
     def __post_init__(self):
         object.__setattr__(self, "headers", CaseInsensitiveDict(self.headers))
@@ -121,7 +129,7 @@ class HTTPResponse:
     body: bytes
     encoding: str
     elapsed_ms: float
-    redirects: list[str]
+    redirects: list[Redirect]
     request: HTTPRequest
 
     def __post_init__(self):

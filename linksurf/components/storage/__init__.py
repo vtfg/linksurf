@@ -61,6 +61,7 @@ class Storage(Component[Payload]):
             "request": asdict(payload.request) if payload.request else None,
             "response": asdict(payload.response) if payload.response else None,
             "content": asdict(payload.content) if payload.content else None,
+            "redirects": [asdict(r) for r in payload.redirects] or None,
             "links": payload.get_metadata("links"),
             "metadata": {k: v for k, v in payload.metadata.items() if k != "links"},
             "last_crawled_at": datetime.now(timezone.utc),

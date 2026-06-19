@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from linksurf.common.models import URL, Content, HTTPResponseSummary, HTTPRequestSummary
+from linksurf.common.models import URL, Content, HTTPResponseSummary, HTTPRequestSummary, Redirect
 
 
 class Payload:
@@ -14,6 +14,7 @@ class Payload:
             retrying: bool = False,
             retries: int = 0,
             content: Content | None = None,
+            redirects: list[Redirect] | None = None,
             request: HTTPRequestSummary | None = None,
             response: HTTPResponseSummary | None = None,
             metadata: dict[str, Any] | None = None,
@@ -27,6 +28,7 @@ class Payload:
         self.retrying = retrying
         self.retries = retries
         self.content = content
+        self.redirects: list[Redirect] = redirects or []
         self.request = request
         self.response = response
         self._metadata = metadata
@@ -49,6 +51,7 @@ class Payload:
             "retrying": self.retrying,
             "retries": self.retries,
             "content": asdict(self.content) if self.content else None,
+            "redirects": [asdict(r) for r in self.redirects],
             "request": asdict(self.request) if self.request else None,
             "response": asdict(self.response) if self.response else None,
             "metadata": self._metadata,
@@ -67,8 +70,11 @@ class Payload:
             retrying=data.get("retrying", False),
             retries=data.get("retries", 0),
             content=Content(**content) if content else None,
+            redirects=[Redirect(**r) for r in data.get("redirects", [])],
             request=HTTPRequestSummary(**request) if request else None,
-            response=HTTPResponseSummary(**response) if response else None,
+            response=HTTPResponseSummary(
+                **{**response, "redirects": [Redirect(**r) for r in response.get("redirects", [])]}
+            ) if response else None,
             metadata=data.get("metadata", {}),
             storage_id=data.get("storage_id"),
         )
