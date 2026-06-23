@@ -105,6 +105,12 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(params), parsed.fragment))
 
 
+def is_gov_br_domain(url: str) -> bool:
+    hostname = urlsplit(url).hostname
+
+    return hostname is not None and (hostname == "gov.br" or hostname.endswith(".gov.br"))
+
+
 def is_domain_blocked(url: str) -> bool:
     netloc = get_domain_name(url)
 
@@ -116,6 +122,9 @@ def is_url_allowed(url: str) -> bool:
         return False
 
     if is_domain_blocked(url):
+        return False
+
+    if is_gov_br_domain(url):
         return False
 
     if len(url) > _MAX_URL_LENGTH:
