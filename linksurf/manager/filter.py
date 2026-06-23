@@ -105,10 +105,30 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(params), parsed.fragment))
 
 
-def is_gov_br_domain(url: str) -> bool:
+_BR_GOVERNMENT_SLDS = {
+    "gov",  # executive / general government
+    "leg",  # legislative
+    "jus",  # judiciary
+    "mp",   # Ministério Público
+    "def",  # Defensoria Pública
+    "tc",   # Tribunais de Contas
+    "mil",  # military
+}
+
+
+def is_br_government_domain(url: str) -> bool:
     hostname = urlsplit(url).hostname
 
-    return hostname is not None and (hostname == "gov.br" or hostname.endswith(".gov.br"))
+    if hostname is None:
+        return False
+
+    parts = hostname.rstrip(".").split(".")
+
+    return (
+        len(parts) >= 2
+        and parts[-1] == "br"
+        and parts[-2] in _BR_GOVERNMENT_SLDS
+    )
 
 
 def is_domain_blocked(url: str) -> bool:
@@ -124,7 +144,7 @@ def is_url_allowed(url: str) -> bool:
     if is_domain_blocked(url):
         return False
 
-    if is_gov_br_domain(url):
+    if is_br_government_domain(url):
         return False
 
     if len(url) > _MAX_URL_LENGTH:

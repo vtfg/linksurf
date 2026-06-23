@@ -11,7 +11,7 @@ load_dotenv()
 
 from linksurf.constants import EXCHANGE_NAME, QUEUE_MAX_PRIORITY, QUEUE_NAME_PREFIX
 from linksurf.helpers import get_domain_name, get_env
-from linksurf.manager.filter import is_gov_br_domain
+from linksurf.manager.filter import is_br_government_domain
 from linksurf.models import HttpInfo, SubmitResultBody
 from linksurf.worker.client import ManagerClient
 from linksurf.worker.fetcher import Fetcher
@@ -58,8 +58,8 @@ async def run() -> None:
                 depth = data["depth"]
                 domain = get_domain_name(url)
 
-                if is_gov_br_domain(url):
-                    print(f"Skipping {url} -> gov.br domain")
+                if is_br_government_domain(url):
+                    print(f"Skipping {url} -> BR government domain")
                     return
 
                 print(f"Crawling {url}")
