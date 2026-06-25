@@ -102,7 +102,7 @@ def normalize_url(url: str) -> str:
         if k.lower() not in _TRACKING_PARAMS:
             params.append((k, v))
 
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(params), parsed.fragment))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(params), ""))
 
 
 _BR_GOVERNMENT_SLDS = {
