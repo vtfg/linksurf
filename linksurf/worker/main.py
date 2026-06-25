@@ -3,6 +3,7 @@ import json
 import time
 import traceback
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import aio_pika
 from dotenv import load_dotenv
@@ -57,6 +58,10 @@ async def run() -> None:
                 url = data["url"]
                 depth = data["depth"]
                 domain = get_domain_name(url)
+
+                if urlsplit(url).fragment:
+                    print(f"Skipping {url} -> URL contains fragment")
+                    return
 
                 if is_br_government_domain(url):
                     print(f"Skipping {url} -> BR government domain")
