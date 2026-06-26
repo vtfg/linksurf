@@ -5,7 +5,6 @@ from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.components.base import Component, Filter
-from linksurf.events.bus import EventBus
 from linksurf.services import Services
 from linksurf.services.cache import Cache
 from linksurf.services.database import Database
@@ -22,8 +21,8 @@ class Storage(Component[Payload]):
 
         self.filters: list[Filter] = []
 
-    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
-        super().on_start(settings, services, event_bus)
+    def on_start(self, settings: Settings, services: Services):
+        super().on_start(settings, services)
 
         self.database = services.database
         self.cache = services.cache

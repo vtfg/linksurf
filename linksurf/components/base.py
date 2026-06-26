@@ -17,8 +17,6 @@ class Producer:
 
 
 class Component[T](Consumer, Producer):
-    event_bus: EventBus
-
     def __init__(self):
         self.rules: list[Rule] = []
         self.deduplicator: Deduplicator | None = None
@@ -26,8 +24,7 @@ class Component[T](Consumer, Producer):
         self.filters: list[Filter] = []
         self.prioritizer: Prioritizer | None = None
 
-    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
-        self.event_bus = event_bus
+    def on_start(self, settings: Settings, services: Services):
 
         for rule in self.rules:
             rule.on_start(settings, services)
@@ -63,18 +60,18 @@ class Component[T](Consumer, Producer):
         component_name = type(self).__name__
         start_time = time.monotonic()
 
-        self.event_bus.emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                                retrying=payload.retrying, retries=payload.retries))
+        EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                            retrying=payload.retrying, retries=payload.retries))
 
         for rule in self.rules:
             rule_name = type(rule).__name__
 
-            self.event_bus.emit(
+            EventBus().emit(
                 RuleStartEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name))
 
             response = rule.execute(payload)
 
-            self.event_bus.emit(
+            EventBus().emit(
                 RuleFinishEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
                                 passed=bool(response.data) and response.error is None))
 
@@ -87,20 +84,20 @@ class Component[T](Consumer, Producer):
         if self.deduplicator is not None:
             deduplicator_name = type(self.deduplicator).__name__
 
-            self.event_bus.emit(DeduplicatorStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                                       deduplicator=deduplicator_name))
+            EventBus().emit(DeduplicatorStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                   deduplicator=deduplicator_name))
 
             response = self.deduplicator.check(payload)
 
             if response.error is not None:
-                self.event_bus.emit(
+                EventBus().emit(
                     DeduplicatorErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                            deduplicator=deduplicator_name, error=response.error.message,
                                            retriable=response.error.retriable, exception=response.error.exception))
 
                 return Response(None, response.error)
 
-            self.event_bus.emit(
+            EventBus().emit(
                 DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                         deduplicator=deduplicator_name, seen=bool(response.data)))
 
@@ -111,13 +108,13 @@ class Component[T](Consumer, Producer):
             middleware_name = type(middleware).__name__
             metadata_snapshot = dict(payload.metadata)
 
-            self.event_bus.emit(MiddlewareStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                                     middleware=middleware_name))
+            EventBus().emit(MiddlewareStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                 middleware=middleware_name))
 
             response = middleware.execute(payload)
 
             if response.error is not None:
-                self.event_bus.emit(
+                EventBus().emit(
                     MiddlewareErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                          middleware=middleware_name,
                                          error=response.error.message,
@@ -128,20 +125,20 @@ class Component[T](Consumer, Producer):
 
             metadata_diff = {k: v for k, v in payload.metadata.items() if metadata_snapshot.get(k) != v}
 
-            self.event_bus.emit(
+            EventBus().emit(
                 MiddlewareFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                       middleware=middleware_name, data=metadata_diff))
 
         for filter_ in self.filters:
             filter_name = type(filter_).__name__
 
-            self.event_bus.emit(
+            EventBus().emit(
                 FilterStartEvent(correlation_id=correlation_id, url=url, component=component_name, filter=filter_name))
 
             response = filter_.execute(payload)
 
             if response.error is not None:
-                self.event_bus.emit(
+                EventBus().emit(
                     FilterErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                      filter=filter_name, error=response.error.message,
                                      retriable=response.error.retriable,
@@ -149,7 +146,7 @@ class Component[T](Consumer, Producer):
 
                 return Response(None, response.error)
 
-            self.event_bus.emit(
+            EventBus().emit(
                 FilterFinishEvent(correlation_id=correlation_id, url=url, component=component_name, filter=filter_name,
                                   passed=bool(response.data)))
 
@@ -161,7 +158,7 @@ class Component[T](Consumer, Producer):
         duration_ms = (time.monotonic() - start_time) * 1000
 
         if result.error is not None:
-            self.event_bus.emit(
+            EventBus().emit(
                 ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                     error=result.error.message,
                                     retriable=result.error.retriable,
@@ -173,7 +170,7 @@ class Component[T](Consumer, Producer):
         if self.prioritizer is not None:
             prioritizer_name = type(self.prioritizer).__name__
 
-            self.event_bus.emit(PrioritizerStartEvent(
+            EventBus().emit(PrioritizerStartEvent(
                 correlation_id=correlation_id, url=url,
                 component=component_name, prioritizer=prioritizer_name,
             ))
@@ -181,7 +178,7 @@ class Component[T](Consumer, Producer):
             response = self.prioritizer.execute(result.data)
 
             if response.error is not None:
-                self.event_bus.emit(PrioritizerErrorEvent(
+                EventBus().emit(PrioritizerErrorEvent(
                     correlation_id=correlation_id, url=url,
                     component=component_name, prioritizer=prioritizer_name,
                     error=response.error.message,
@@ -192,13 +189,13 @@ class Component[T](Consumer, Producer):
 
             result.data.priority = response.data
 
-            self.event_bus.emit(PrioritizerFinishEvent(
+            EventBus().emit(PrioritizerFinishEvent(
                 correlation_id=correlation_id, url=url,
                 component=component_name, prioritizer=prioritizer_name,
                 priority=response.data,
             ))
 
-        self.event_bus.emit(
+        EventBus().emit(
             ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                  duration_ms=duration_ms,
                                  retrying=payload.retrying,

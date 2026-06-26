@@ -1,11 +1,19 @@
+from __future__ import annotations
+
 from typing import Callable, Any
 
 from linksurf.events import Event
 
 
 class EventBus:
-    def __init__(self):
-        self._listeners: dict[str, list[Callable[[Any], None]]] = {}
+    _instance: EventBus | None = None
+
+    def __new__(cls) -> EventBus:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._listeners: dict[str, list[Callable[[Any], None]]] = {}
+
+        return cls._instance
 
     def on(self, name: str, handler: Callable[[Any], None]) -> None:
         self._listeners.setdefault(name, []).append(handler)

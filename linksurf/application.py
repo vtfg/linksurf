@@ -19,7 +19,6 @@ class Linksurf:
         self.settings = settings
         self.services = services
         self.broker = broker
-        self.event_bus = EventBus()
 
         self.frontier = Frontier()
         self.downloader = Downloader()
@@ -31,7 +30,7 @@ class Linksurf:
     def run(self, seed: list[URL]) -> None:
         for listener in self.listeners:
             for name in listener.EVENTS:
-                self.event_bus.on(name, listener.handle)
+                EventBus().on(name, listener.handle)
 
         Logger().info("application.start")
 
@@ -56,7 +55,7 @@ class Linksurf:
         components = [self.frontier, self.downloader, self.parser, self.storage]
 
         for component in components:
-            component.on_start(self.settings, self.services, self.event_bus)
+            component.on_start(self.settings, self.services)
 
         # Order don't matter. What matters is the component's CONSUMES_FROM and PRODUCES_TO.
         self.broker.pipeline(components)

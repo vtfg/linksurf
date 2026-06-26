@@ -20,8 +20,8 @@ class Downloader(Component[Payload]):
     def __init__(self):
         super().__init__()
 
-    def on_start(self, settings: Settings, services: Services, event_bus: EventBus):
-        super().on_start(settings, services, event_bus)
+    def on_start(self, settings: Settings, services: Services):
+        super().on_start(settings, services)
 
         self.fetcher = services.fetcher
         self.blob_storage = services.blob_storage
