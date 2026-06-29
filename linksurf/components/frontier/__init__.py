@@ -1,24 +1,87 @@
+from linksurf.broker.base import Broker
 from linksurf.common.payload import Payload
-from linksurf.common.types import Response, Error
+from linksurf.common.settings import Settings
+from linksurf.common.types import Error
 from linksurf.components.base import Component
 from linksurf.components.frontier.deduplicator import URLDeduplicator
+from linksurf.components.frontier.filters import RobotsExclusionFilter
+from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware
 from linksurf.components.frontier.prioritizer import MultiFactorPrioritizer
+from linksurf.components.frontier.rules import (
+    SchemeRule,
+    URLExtensionRule,
+    URLLimitsRule,
+    BlockedDomainsRule,
+    BLOCKED_EXTENSIONS,
+)
+from linksurf.services import Services
 
 
-class Frontier(Component[Payload]):
-    CONSUMES_FROM = "url.process"
-    PRODUCES_TO = "url.fetch"
+class Frontier(Component):
+    TOPIC = "url.process"
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, broker: Broker) -> None:
+        super().__init__(broker)
 
+        self.rules = [
+            SchemeRule(allowed=["http", "https"]),
+            URLExtensionRule(blocked=BLOCKED_EXTENSIONS),
+            URLLimitsRule(max_length=2048, max_path_depth=10),
+            BlockedDomainsRule(blocked=["google.com", "iana.org"]),
+        ]
         self.deduplicator = URLDeduplicator()
+        self.middlewares = [
+            DNSMiddleware(),
+            # CountryMiddleware(),
+            RobotsExclusionMiddleware(),
+        ]
+        self.filters = [
+            RobotsExclusionFilter(),
+        ]
         self.prioritizer = MultiFactorPrioritizer()
 
-    def run(self, payload: Payload) -> Response[Payload]:
-        try:
-            self.deduplicator.register(payload)
-        except Exception as e:
-            return Response(None, Error("Cache write failed.", retriable=True, exception=e))
+    def on_start(self, settings: Settings, services: Services) -> None:
+        super().on_start(settings, services)
 
-        return Response(payload, None)
+        self.subscribe(self.TOPIC, self.process)
+
+    def process(self, payload: Payload) -> Error | None:
+        # TODO: Handle politeness with back-queues and expose an API or Service to the Downloader
+
+        proceed, error = self.rule(payload)
+
+        if error is not None:
+            return error
+
+        if not proceed:
+            return None
+
+        seen, error = self.deduplicate(payload)
+
+        if error is not None:
+            return error
+
+        if seen:
+            return None
+
+        proceed, error = self.filter(payload)
+
+        if error is not None:
+            if error.retriable:
+                # TODO: Remove message from deduplicator's cache
+
+                pass
+
+            return error
+
+        if not proceed:
+            return None
+
+        priority, error = self.prioritize(payload)
+
+        if error is not None:
+            return error
+
+        self.publish("url.download", payload, priority)
+
+        return None

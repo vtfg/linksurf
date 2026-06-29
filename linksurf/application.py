@@ -9,7 +9,7 @@ from linksurf.components.frontier import Frontier
 from linksurf.components.parser import Parser
 from linksurf.components.storage import Storage
 from linksurf.events.bus import EventBus
-from linksurf.events.listeners import Listener
+from linksurf.events.listeners import Listener, LoggingListener
 from linksurf.logger import Logger
 from linksurf.services import Services
 
@@ -20,12 +20,14 @@ class Linksurf:
         self.services = services
         self.broker = broker
 
-        self.frontier = Frontier()
-        self.downloader = Downloader()
-        self.parser = Parser()
-        self.storage = Storage()
+        self.frontier = Frontier(broker)
+        self.downloader = Downloader(broker)
+        self.parser = Parser(broker)
+        self.storage = Storage(broker)
 
-        self.listeners: list[Listener] = []
+        self.listeners: list[Listener] = [
+            LoggingListener(),
+        ]
 
     def run(self, seed: list[URL]) -> None:
         for listener in self.listeners:
@@ -57,11 +59,8 @@ class Linksurf:
         for component in components:
             component.on_start(self.settings, self.services)
 
-        # Order don't matter. What matters is the component's CONSUMES_FROM and PRODUCES_TO.
-        self.broker.pipeline(components)
-
         for url in seed:
-            self.broker.seed(Frontier.CONSUMES_FROM, Payload(url=url))
+            self.broker.seed(Frontier.TOPIC, Payload(url=url))
 
         def on_signal(signum, frame):
             Logger().info("application.shutdown")

@@ -1,43 +1,40 @@
 from linksurf.common.models import URL, Link, MimeType
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
-from linksurf.common.types import Response, Error
+from linksurf.common.types import Error
 from linksurf.components.base import Component
 from linksurf.components.parser.extractors import LinkExtractor
-from linksurf.events.bus import EventBus
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.blob import BlobStorage
 
 
-class Parser(Component[Payload]):
-    CONSUMES_FROM = "page.parse"
-    PRODUCES_TO = ["page.store", "url.process"]
+class Parser(Component):
+    TOPIC = "url.parse"
 
     blob_storage: BlobStorage
-
-    def __init__(self):
-        super().__init__()
 
     def on_start(self, settings: Settings, services: Services):
         super().on_start(settings, services)
 
         self.blob_storage = services.blob_storage
 
-    def run(self, payload: Payload) -> Response[dict]:
+        self.subscribe(self.TOPIC, self.parse)
+
+    def parse(self, payload: Payload) -> Error | None:
         if payload.content is None:
-            return Response(None, Error("Payload has no content.", retriable=False))
+            return Error("Payload has no content.", retriable=False)
 
         if payload.content.type != MimeType.HTML:
-            return Response(None, Error("Content type not supported.", retriable=False))
+            return Error("Content type not supported.", retriable=False)
 
         try:
             contents = self.blob_storage.download(payload.content.key)
         except Exception as e:
-            return Response(None, Error("Blob download failed.", retriable=True, exception=e))
+            return Error("Blob download failed.", retriable=True, exception=e)
 
         if contents is None:
-            return Response(None, Error("Blob downloaded content is empty.", retriable=False))
+            return Error("Blob downloaded content is empty.", retriable=False)
 
         html = contents.decode(payload.response.encoding)
 
@@ -49,7 +46,8 @@ class Parser(Component[Payload]):
 
         links_payloads = [Payload(url=URL(link.target)) for link in links]
 
-        return Response({
-            "page.store": payload,
-            "url.process": links_payloads,
-        }, None)
+        self.publish("url.process", links_payloads)
+
+        self.publish("url.store", payload)
+
+        return None

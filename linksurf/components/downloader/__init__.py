@@ -1,24 +1,36 @@
+from linksurf.broker.base import Broker
 from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES, MAX_REDIRECT_DEPTH
 from linksurf.common.models import HTTPRequest, MimeType, Redirect, URL
 from linksurf.common.payload import Content, Payload
 from linksurf.common.settings import Settings
-from linksurf.common.types import Response, Error
+from linksurf.common.types import Error
 from linksurf.components.base import Component
-from linksurf.events.bus import EventBus
+from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
+from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware, \
+    RateLimiterMiddleware
 from linksurf.services import Services, Fetcher
 from linksurf.services.blob import BlobStorage
 from linksurf.services.fetcher import MaxRedirectsError
 
 
-class Downloader(Component[Payload]):
-    CONSUMES_FROM = "url.fetch"
-    PRODUCES_TO = "page.parse"
+class Downloader(Component):
+    TOPIC = "url.download"
 
     fetcher: Fetcher
     blob_storage: BlobStorage
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, broker: Broker):
+        super().__init__(broker)
+
+        self.middlewares = [
+            ContentTypeMiddleware(),
+            ContentLengthMiddleware(),
+            RateLimiterMiddleware(),
+        ]
+        self.filters = [
+            ContentTypeFilter(allowed=[MimeType.HTML]),
+            ContentLengthFilter(max_bytes=TEN_MEGABYTES_IN_BYTES),
+        ]
 
     def on_start(self, settings: Settings, services: Services):
         super().on_start(settings, services)
@@ -26,24 +38,26 @@ class Downloader(Component[Payload]):
         self.fetcher = services.fetcher
         self.blob_storage = services.blob_storage
 
-    def run(self, payload: Payload) -> Response[Payload | dict[str, Payload]]:
+        self.subscribe(self.TOPIC, self.download)
+
+    def download(self, payload: Payload) -> Error | None:
         request = HTTPRequest(url=payload.url.address, follow_redirects=True)
 
         try:
             response = self.fetcher.http(request)
         except MaxRedirectsError as e:
-            return Response(None, Error("Too many redirects.", retriable=False, exception=e))
+            return Error("Too many redirects.", retriable=False, exception=e)
         except Exception as e:
-            return Response(None, Error("HTTP fetch failed.", retriable=True, exception=e))
+            return Error("HTTP fetch failed.", retriable=True, exception=e)
 
         if response is None:
-            return Response(None, Error("HTTP fetch returned empty response.", retriable=True))
+            return Error("HTTP fetch returned empty response.", retriable=True)
 
         if response.redirects:
             self._append_redirects(payload, response.redirects)
 
         if payload.redirects and payload.redirects[-1].depth >= MAX_REDIRECT_DEPTH:
-            return Response(None, Error("Redirect depth limit exceeded.", retriable=False))
+            return Error("Redirect depth limit exceeded.", retriable=False)
 
         # final URL
         final_url = URL(response.url)
@@ -51,10 +65,12 @@ class Downloader(Component[Payload]):
         if final_url.domain != payload.url.domain:
             redirect_payload = Payload(url=final_url, redirects=payload.redirects)
 
-            return Response({"url.process": redirect_payload}, None)
+            self.publish("url.process", redirect_payload)
+
+            return None
 
         if len(response.body) > TEN_MEGABYTES_IN_BYTES:  # Safety bound
-            return Response(None, Error("Body exceeds maximum allowed size.", retriable=False))
+            return Error("Body exceeds maximum allowed size.", retriable=False)
 
         mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
 
@@ -64,7 +80,7 @@ class Downloader(Component[Payload]):
         try:
             self.blob_storage.upload(response.body, key, content_type=mime_type)
         except Exception as e:
-            return Response(None, Error("Blob upload failed.", retriable=True, exception=e))
+            return Error("Blob upload failed.", retriable=True, exception=e)
 
         try:
             type = MimeType(mime_type)
@@ -75,12 +91,13 @@ class Downloader(Component[Payload]):
         payload.request = request.to_summary()
         payload.response = response.to_summary()
 
-        return Response(payload, None)
+        self.publish("url.parse", payload)
+
+        return None
 
     def _append_redirects(self, payload: Payload, redirects: list) -> None:
         # depth needs to be recalculated because the payload can already have an existing redirects fields
-        # happens when cross-domain redirect, a new payload gets sent back to the Frontier
-        # and Downloader execution stops
+        # happens when cross-domain redirect, a new payload gets sent back to the Frontier and Downloader execution stops
 
         start_depth = len(payload.redirects)
 

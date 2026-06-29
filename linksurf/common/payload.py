@@ -44,6 +44,10 @@ class Payload:
     def add_metadata(self, key: str, value: Any) -> None:
         self._metadata[key] = value
 
+    @property
+    def correlation_id(self) -> str:
+        return self.url.hash
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "url": self.url.address,

@@ -1,24 +1,8 @@
 from linksurf.application import Linksurf
 from linksurf.broker.rabbitmq import RabbitMQBroker
-from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES
-from linksurf.common.models import URL, MimeType
+from linksurf.common.models import URL
 from linksurf.common.settings import Settings
-from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
-from linksurf.components.downloader.middlewares import (
-    ContentTypeMiddleware,
-    RateLimiterMiddleware,
-    ContentLengthMiddleware,
-)
-from linksurf.components.frontier.filters import RobotsExclusionFilter
-from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware
-from linksurf.components.frontier.rules import (
-    SchemeRule,
-    URLExtensionRule,
-    URLLimitsRule,
-    BlockedDomainsRule,
-    BLOCKED_EXTENSIONS,
-)
-from linksurf.events.listeners import LoggingListener
+
 from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
 from linksurf.services.cache import RedisCache
@@ -64,49 +48,12 @@ if __name__ == "__main__":
 
     linksurf = Linksurf(settings=settings, services=services, broker=broker)
 
-    linksurf.listeners = [
-        LoggingListener(),
-    ]
-
     # Future implementation
     # Extensions contain a list of middlewares for the frontier and filters for both frontier and storage
     # They may also have lifecycle events and scheduled events (i.e. to check proxies periodically)
     # Extensions can also be HTTP servers, like an Admin Panel that shows metrics about the crawler
     linksurf.extensions = [
         # ProxyPoolExtension(proxies=list[URL?]) -> manages proxies and returns one before every request
-    ]
-
-    linksurf.frontier.rules = [
-        SchemeRule(allowed=["http", "https"]),
-        URLExtensionRule(blocked=BLOCKED_EXTENSIONS),
-        URLLimitsRule(max_length=2048, max_path_depth=10),
-        BlockedDomainsRule(blocked=["google.com"]),
-    ]
-
-    linksurf.frontier.middlewares = [
-        DNSMiddleware(),
-        # CountryMiddleware(),
-        RobotsExclusionMiddleware(),
-    ]
-
-    linksurf.frontier.filters = [
-        # CountryFilter(allowed=[COUNTRIES["BRA"]]),
-        RobotsExclusionFilter(),
-    ]
-
-    linksurf.downloader.middlewares = [
-        ContentTypeMiddleware(),
-        ContentLengthMiddleware(),
-        RateLimiterMiddleware(),
-    ]
-
-    linksurf.downloader.filters = [
-        ContentTypeFilter(allowed=[MimeType.HTML]),
-        ContentLengthFilter(max_bytes=TEN_MEGABYTES_IN_BYTES),
-    ]
-
-    linksurf.storage.filters = [
-        # ContentSeenFilter(),
     ]
 
     linksurf.run(seed)

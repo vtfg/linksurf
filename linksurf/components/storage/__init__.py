@@ -1,25 +1,28 @@
 from dataclasses import asdict
 from datetime import datetime, timezone
 
+from linksurf.broker.base import Broker
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
-from linksurf.common.types import Response, Error
-from linksurf.components.base import Component, Filter
+from linksurf.common.types import Error
+from linksurf.components.base import Component
 from linksurf.services import Services
 from linksurf.services.cache import Cache
 from linksurf.services.database import Database
 
 
-class Storage(Component[Payload]):
-    CONSUMES_FROM = "page.store"
+class Storage(Component):
+    TOPIC = "url.store"
 
     database: Database
     cache: Cache
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, broker: Broker):
+        super().__init__(broker)
 
-        self.filters: list[Filter] = []
+        self.filters = [
+            # ContentSeenFilter(),
+        ]
 
     def on_start(self, settings: Settings, services: Services):
         super().on_start(settings, services)
@@ -27,16 +30,18 @@ class Storage(Component[Payload]):
         self.database = services.database
         self.cache = services.cache
 
-    def run(self, payload: Payload) -> Response[Payload]:
+        self.subscribe(self.TOPIC, self.store)
+
+    def store(self, payload: Payload) -> Error | None:
         if payload.content is None or payload.response is None:
-            return Response(None, Error("Payload has no content or response.", retriable=False))
+            return Error("Payload has no content or response.", retriable=False)
 
         data = self._build_data(payload)
 
         try:
             storage_id = self.database.save_url(data)
         except Exception as e:
-            return Response(None, Error("Database write failed.", retriable=True, exception=e))
+            return Error("Database write failed.", retriable=True, exception=e)
 
         payload.storage_id = storage_id
 
@@ -48,9 +53,11 @@ class Storage(Component[Payload]):
                 payload.response.size_bytes,
             )
         except Exception as e:
-            return Response(None, Error("Cache write failed.", retriable=True, exception=e))
+            return Error("Cache write failed.", retriable=True, exception=e)
 
-        return Response(payload, None)
+        # Storage doesn't publish to anything
+
+        return None
 
     def _build_data(self, payload: Payload) -> dict:
         return {
