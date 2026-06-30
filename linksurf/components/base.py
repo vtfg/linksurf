@@ -126,7 +126,7 @@ class Component:
         """
 
         from linksurf.events import (
-            RuleStartEvent, RuleFinishEvent,
+            RuleStartEvent, RuleFinishEvent, RuleErrorEvent,
         )
 
         correlation_id = payload.correlation_id
@@ -141,14 +141,17 @@ class Component:
 
             response = rule.execute(payload)
 
-            EventBus().emit(
-                RuleFinishEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
-                                passed=bool(response.data) and response.error is None))
-
             if response.error is not None:
-                # TODO: Emit RuleErrorEvent
+                EventBus().emit(
+                    RuleErrorEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
+                                   error=response.error.message, retriable=response.error.retriable,
+                                   exception=response.error.exception))
 
                 return None, response.error
+
+            EventBus().emit(
+                RuleFinishEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
+                                passed=bool(response.data)))
 
             if not response.data:
                 return False, None
@@ -336,6 +339,12 @@ class Component:
         return response.data, None
 
     def subscribe(self, topic: str, callback: Callable[[Payload], Error | None]) -> None:
+        from linksurf.events import ComponentSubscribeEvent
+
+        component_name = type(self).__name__
+
+        EventBus().emit(ComponentSubscribeEvent(component=component_name, topic=topic))
+
         def handler(data: Payload):
             from linksurf.events import (
                 ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
@@ -343,7 +352,6 @@ class Component:
 
             correlation_id = data.correlation_id
             url = data.url.address
-            component_name = type(self).__name__
             start_time = time.perf_counter()
 
             if data.retrying:
@@ -351,7 +359,7 @@ class Component:
                 data.retries += 1
 
             EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                                retrying=data.retrying, retries=data.retries))
+                                                topic=topic, retrying=data.retrying, retries=data.retries))
 
             error = callback(data)
 
@@ -388,23 +396,35 @@ class Component:
 
             EventBus().emit(
                 ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                     duration_ms=duration_ms,
-                                     retrying=data.retrying,
-                                     retries=data.retries))
+                                     topic=topic, duration_ms=duration_ms,
+                                     retrying=data.retrying, retries=data.retries))
 
         self.broker.subscribe(topic, handler)
 
     def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
+        from linksurf.events import ComponentPublishEvent
+
         payloads = data if isinstance(data, list) else [data]
 
         for payload in payloads:
             self._prepare_publish(topic, payload, priority)
 
+            EventBus().emit(ComponentPublishEvent(
+                url=payload.url.address, component=self._component_name,
+                topic=topic, priority=payload.priority,
+            ))
+
             self.broker.publish(topic, payload, payload.priority)
 
-    def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int,
-                        priority: int | None = None) -> None:
+    def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int, priority: int | None = None) -> None:
+        from linksurf.events import ComponentPublishEvent
+
         self._prepare_publish(topic, payload, priority)
+
+        EventBus().emit(ComponentPublishEvent(
+            url=payload.url.address, component=self._component_name,
+            topic=topic, priority=payload.priority, delay=delay_seconds,
+        ))
 
         self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
 

@@ -5,10 +5,18 @@ from typing import Any, Literal, Union
 
 
 @dataclass
+class ComponentSubscribeEvent:
+    component: str
+    topic: str
+    name: Literal["component.subscribe"] = field(default="component.subscribe", init=False)
+
+
+@dataclass
 class ComponentStartEvent:
     correlation_id: str
     url: str
     component: str
+    topic: str
     retrying: bool
     retries: int
     name: Literal["component.start"] = field(default="component.start", init=False)
@@ -19,6 +27,7 @@ class ComponentFinishEvent:
     correlation_id: str
     url: str
     component: str
+    topic: str
     duration_ms: float
     retrying: bool
     retries: int
@@ -39,6 +48,16 @@ class ComponentErrorEvent:
 
 
 @dataclass
+class ComponentPublishEvent:
+    url: str
+    component: str
+    topic: str
+    priority: int
+    delay: int | None = None
+    name: Literal["component.publish"] = field(default="component.publish", init=False)
+
+
+@dataclass
 class RuleStartEvent:
     correlation_id: str
     url: str
@@ -55,6 +74,18 @@ class RuleFinishEvent:
     rule: str
     passed: bool
     name: Literal["rule.finish"] = field(default="rule.finish", init=False)
+
+
+@dataclass
+class RuleErrorEvent:
+    correlation_id: str
+    url: str
+    component: str
+    rule: str
+    error: str
+    retriable: bool
+    exception: BaseException | None = None
+    name: Literal["rule.error"] = field(default="rule.error", init=False)
 
 
 @dataclass
@@ -182,8 +213,10 @@ class PrioritizerErrorEvent:
 
 
 Event = Union[
+    ComponentSubscribeEvent,
     ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
-    RuleStartEvent, RuleFinishEvent,
+    ComponentPublishEvent,
+    RuleStartEvent, RuleFinishEvent, RuleErrorEvent,
     DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
     MiddlewareStartEvent, MiddlewareFinishEvent, MiddlewareErrorEvent,
     FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
