@@ -1,23 +1,25 @@
+import time
+
 from linksurf.broker.base import Broker
-from linksurf.common.constants import TEN_MEGABYTES_IN_BYTES, MAX_REDIRECT_DEPTH
+from linksurf.common.constants import MAX_REDIRECT_DEPTH, TEN_MEGABYTES_IN_BYTES
 from linksurf.common.models import HTTPRequest, MimeType, Redirect, URL
 from linksurf.common.payload import Content, Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
 from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
-from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware, \
-    RateLimiterMiddleware
-from linksurf.services import Services, Fetcher
-from linksurf.services.blob import BlobStorage
+from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware
+from linksurf.logger import Logger
+from linksurf.services import Services, Fetcher, BlobStorage, Cache
 from linksurf.services.fetcher import MaxRedirectsError
 
 
 class Downloader(Component):
     TOPIC = "url.download"
 
-    fetcher: Fetcher
     blob_storage: BlobStorage
+    cache: Cache
+    fetcher: Fetcher
 
     def __init__(self, broker: Broker):
         super().__init__(broker)
@@ -25,7 +27,6 @@ class Downloader(Component):
         self.middlewares = [
             ContentTypeMiddleware(),
             ContentLengthMiddleware(),
-            RateLimiterMiddleware(),
         ]
         self.filters = [
             ContentTypeFilter(allowed=[MimeType.HTML]),
@@ -35,12 +36,18 @@ class Downloader(Component):
     def on_start(self, settings: Settings, services: Services):
         super().on_start(settings, services)
 
-        self.fetcher = services.fetcher
         self.blob_storage = services.blob_storage
+        self.cache = services.cache
+        self.fetcher = services.fetcher
 
         self.subscribe(self.TOPIC, self.download)
 
     def download(self, payload: Payload) -> Error | None:
+        error = self.throttle(payload)
+
+        if error is not None:
+            return error
+
         request = HTTPRequest(url=payload.url.address, follow_redirects=True)
 
         try:
@@ -59,7 +66,6 @@ class Downloader(Component):
         if payload.redirects and payload.redirects[-1].depth >= MAX_REDIRECT_DEPTH:
             return Error("Redirect depth limit exceeded.", retriable=False)
 
-        # final URL
         final_url = URL(response.url)
 
         if final_url.domain != payload.url.domain:
@@ -69,12 +75,18 @@ class Downloader(Component):
 
             return None
 
-        if len(response.body) > TEN_MEGABYTES_IN_BYTES:  # Safety bound
-            return Error("Body exceeds maximum allowed size.", retriable=False)
-
-        mime_type = response.content_type.split(";")[0].strip() if response.content_type else None
-
         payload.url = final_url
+        payload.response = response.to_summary()
+
+        proceed, error = self.filter(payload)
+
+        if error is not None:
+            return error
+
+        if not proceed:
+            return None
+
+        mime_type = payload.get_metadata("content_type")
         key = payload.url.hash
 
         try:
@@ -89,9 +101,40 @@ class Downloader(Component):
 
         payload.content = Content(key=key, type=type)
         payload.request = request.to_summary()
-        payload.response = response.to_summary()
 
         self.publish("url.parse", payload)
+
+        return None
+
+    def throttle(self, payload: Payload, delay: float = 1.0) -> Error | None:
+        """
+           Enforces per-domain crawl delays. Uses the Crawl-delay from robots.txt when
+           available, falling back to `delay` from parameters.
+           """
+
+        domain = payload.url.domain
+        port = payload.url.port
+
+        robots = payload.get_metadata("robots") or {}
+        delay = robots.get("delay") or delay
+
+        try:
+            last_fetch = self.cache.get_domain_last_fetch(domain, port)
+        except Exception as e:
+            return Error("Cache lookup failed.", retriable=True, exception=e)
+
+        if last_fetch is not None:
+            elapsed = time.monotonic() - last_fetch
+
+            if elapsed < delay:
+                Logger().debug("component.debug", message=f"Sleeping for {delay - elapsed} seconds")
+
+                time.sleep(delay - elapsed)
+
+        try:
+            self.cache.save_domain_last_fetch(domain, port, time.monotonic())
+        except Exception as e:
+            return Error("Cache write failed.", retriable=True, exception=e)
 
         return None
 
