@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import site
 from typing import Any
 
 import structlog
@@ -22,13 +23,19 @@ class Logger:
         return event_dict
 
     def _setup(self) -> None:
+        site_packages = site.getsitepackages()
+
         structlog.configure(
             processors=[
                 structlog.stdlib.add_log_level,
                 structlog.processors.TimeStamper("iso", utc=True),
                 self._drop_correlation_id,
                 structlog.dev.ConsoleRenderer(
-                    exception_formatter=structlog.dev.RichTracebackFormatter(show_locals=True)
+                    exception_formatter=structlog.dev.RichTracebackFormatter(
+                        show_locals=True,
+                        max_frames=2,
+                        suppress=site_packages
+                    ),
                 ),
             ],
         )
