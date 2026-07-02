@@ -49,10 +49,6 @@ def normalize_url(url: str) -> str:
 
     path = split.path or "/"
 
-    # remove trailing slash on non-root paths
-    if path != "/" and path.endswith("/"):
-        path = path.rstrip("/")
-
     # strip tracking query parameters and sort the rest
     params = [
         (k, v) for k, v in parse_qsl(split.query, keep_blank_values=True)
