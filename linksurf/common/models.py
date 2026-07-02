@@ -66,6 +66,7 @@ class Link:
 
 @dataclass(frozen=True)
 class HTTPRequestSummary:
+    url: str
     method: str = "GET"
     user_agent: str | None = None
     proxy: str | None = None
@@ -84,6 +85,7 @@ class HTTPRequest:
 
     def to_summary(self) -> HTTPRequestSummary:
         return HTTPRequestSummary(
+            url=self.url,
             method=self.method,
             user_agent=self.user_agent,
             proxy=self.proxy,
