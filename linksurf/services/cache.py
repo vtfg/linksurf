@@ -12,9 +12,9 @@ ONE_DAY_IN_SECONDS = 60 * 60 * 24
 _DOMAIN_KEY_PREFIX = "linksurf:domain:"
 _DOMAIN_STATUS_SUFFIX = ":status"
 _DOMAIN_METRICS_SUFFIX = ":metrics"
+_DOMAIN_ROBOTS_SUFFIX = ":robots"
 _DOMAIN_STATUS_TTL = ONE_DAY_IN_SECONDS
 _URL_SEEN_CACHE_KEY = "linksurf:seen"
-_ROBOTS_CACHE_KEY_PREFIX = "linksurf:robots:"
 _ROBOTS_CACHE_TTL = ONE_DAY_IN_SECONDS
 _LAST_FETCH_KEY_PREFIX = "linksurf:fetch:"
 _LAST_FETCH_TTL = ONE_DAY_IN_SECONDS
@@ -27,6 +27,13 @@ class DomainMetrics:
     avg_content_size: float
 
 
+@dataclass
+class RobotsRecord:
+    status_code: int
+    content_type: str | None
+    text: str
+
+
 class Cache(Service):
     NAME = "cache"
 
@@ -36,10 +43,11 @@ class Cache(Service):
     def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str] | None:
         pass
 
-    def save_domain_robots_txt(self, domain: str, contents: str) -> None:
+    def save_domain_robots_txt(self, domain: str, port: int, status_code: int, content_type: str | None,
+                               text: str) -> None:
         pass
 
-    def get_domain_robots_txt(self, domain: str) -> str | None:
+    def get_domain_robots_txt(self, domain: str, port: int) -> RobotsRecord | None:
         pass
 
     def mark_url_seen(self, url: URL) -> None:
@@ -94,15 +102,31 @@ class RedisCache(Cache):
 
         return None
 
-    def save_domain_robots_txt(self, domain: str, contents: str) -> None:
-        key = f"{_ROBOTS_CACHE_KEY_PREFIX}{domain}"
+    def save_domain_robots_txt(self, domain: str, port: int, status_code: int, content_type: str | None,
+                               text: str) -> None:
+        key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_ROBOTS_SUFFIX}"
 
-        self._client.set(key, contents, ex=_ROBOTS_CACHE_TTL)
+        self._client.hset(key, mapping={
+            "status_code": status_code,
+            "content_type": content_type or "",
+            "text": text,
+        })
 
-    def get_domain_robots_txt(self, domain: str) -> str | None:
-        key = f"{_ROBOTS_CACHE_KEY_PREFIX}{domain}"
+        self._client.expire(key, _ROBOTS_CACHE_TTL)
 
-        return self._client.get(key) or None
+    def get_domain_robots_txt(self, domain: str, port: int) -> RobotsRecord | None:
+        key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_ROBOTS_SUFFIX}"
+
+        data = self._client.hgetall(key)
+
+        if not data:
+            return None
+
+        return RobotsRecord(
+            status_code=int(data["status_code"]),
+            content_type=data.get("content_type") or None,
+            text=data.get("text", ""),
+        )
 
     def mark_url_seen(self, url: URL) -> None:
         self._client.sadd(_URL_SEEN_CACHE_KEY, url.hash)
