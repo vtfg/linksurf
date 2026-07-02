@@ -89,6 +89,8 @@ class RobotsExclusionMiddleware(Middleware):
         except Exception as e:
             return MiddlewareResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
+        cached = record is not None
+
         if record is None:
             record, error = self._fetch(payload)
 
@@ -107,7 +109,9 @@ class RobotsExclusionMiddleware(Middleware):
         if error is not None:
             return MiddlewareResponse(None, error)
 
-        payload.add_metadata("robots", {"available": available, "can_fetch": can_fetch, "delay": delay})
+        payload.add_metadata("robots", {
+            "available": available, "can_fetch": can_fetch, "delay": delay, "cache_hit": cached,
+        })
 
         return MiddlewareResponse(payload, None)
 
