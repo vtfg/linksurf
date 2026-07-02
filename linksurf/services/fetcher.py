@@ -6,6 +6,7 @@ from requests.exceptions import TooManyRedirects
 from linksurf.common.constants import DEFAULT_USER_AGENT, MAX_REDIRECT_DEPTH
 from linksurf.common.models import HTTPRequest, HTTPResponse, Redirect
 from linksurf.common.settings import Settings
+from linksurf.logger import Logger
 from linksurf.services.base import Service
 
 
@@ -23,12 +24,14 @@ class Fetcher(Service):
 class RequestsFetcher(Fetcher):
     def __init__(self):
         self.user_agent = DEFAULT_USER_AGENT
+        self.proxy: str | None = None
         self._session: Session | None = None
 
     def on_start(self, settings: Settings):
         self.user_agent = settings.user_agent
-        self._session = Session()
+        self.proxy = settings.proxy
 
+        self._session = Session()
         self._session.max_redirects = MAX_REDIRECT_DEPTH
 
     def on_stop(self):
@@ -42,10 +45,14 @@ class RequestsFetcher(Fetcher):
         if scheme not in ["http", "https"]:
             raise ValueError(f"Unsupported scheme: {scheme}")
 
+        proxy = request.proxy or self.proxy
         proxies = None
 
-        if request.proxy:
-            proxies = {"http": request.proxy, "https": request.proxy}
+        if proxy:
+            request.proxy = proxy
+            proxies = {"http": proxy, "https": proxy}
+
+            Logger().debug("service.debug", service="Fetcher", message="Using proxy", proxy=proxy)
 
         request.user_agent = self.user_agent
 
