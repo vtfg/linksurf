@@ -2,10 +2,12 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from linksurf.broker.base import Broker
+from linksurf.common.models import URL
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
+from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.cache import Cache
 from linksurf.services.database import Database
@@ -55,9 +57,30 @@ class Storage(Component):
         except Exception as e:
             return Error("Cache write failed.", retriable=True, exception=e)
 
-        # Storage doesn't publish to anything
+        self._mark_redirects_seen(payload)
+
+        # Storage is the final pipeline component.
 
         return None
+
+    def _mark_redirects_seen(self, payload: Payload) -> None:
+        """
+        Registers every redirect hop's target and the final URL as seen.
+
+        Failures are only logged so main storing isn't affected.
+        """
+
+        urls = [URL(redirect.target) for redirect in payload.redirects] + [payload.url]
+
+        for url in urls:
+            try:
+                self.cache.mark_url_seen(url)
+            except Exception as e:
+                Logger().warning(
+                    "component.warning",
+                    message=f"Failed to mark redirect target as seen: {url.address}",
+                    exception=str(e),
+                )
 
     def _build_data(self, payload: Payload) -> dict:
         return {
