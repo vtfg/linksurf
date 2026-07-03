@@ -58,14 +58,16 @@ class Parser(Component):
         return None
 
     def _filter_and_publish_links(self, payload: Payload, links: list[Link]):
-        page_url = payload.url.address
+        current_url = payload.url.address
+
+        unique_links: set[str] = set()
 
         for link in links:
-            target_url = URL(link.target)
-
-            if target_url.address == page_url:
+            if link.target == current_url:
                 continue
 
-            link_payload = Payload(url=target_url)
+            unique_links.add(link.target)
 
-            self.publish("url.process", link_payload)
+        links_payloads = [Payload(url=URL(link)) for link in unique_links]
+
+        self.publish("url.process", links_payloads)
