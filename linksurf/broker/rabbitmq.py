@@ -9,6 +9,7 @@ from linksurf.broker.base import Broker
 from linksurf.common.constants import MAX_QUEUE_PRIORITY, MIN_QUEUE_PRIORITY
 from linksurf.common.payload import Payload
 from linksurf.components.base import Component
+from linksurf.logger import Logger
 
 EXCHANGE = "linksurf.exchange"
 
@@ -50,7 +51,14 @@ class RabbitMQBroker(Broker):
                 _: pika.spec.BasicProperties,
                 body: bytes,
         ):
-            data = Payload.from_dict(json.loads(body))
+            try:
+                data = Payload.from_dict(json.loads(body))
+            except Exception as e:
+                Logger().error("broker.malformed_message", exception=str(e))
+
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+
+                return
 
             handler(data)
 
