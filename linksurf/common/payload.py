@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from typing import Any
+from uuid import uuid4
 
 from linksurf.common.models import URL, Content, HTTPResponseSummary, HTTPRequestSummary, Redirect
 
@@ -19,6 +20,7 @@ class Payload:
             response: HTTPResponseSummary | None = None,
             metadata: dict[str, Any] | None = None,
             storage_id: str | None = None,
+            correlation_id: str | None = None,
     ):
         if metadata is None:
             metadata = {}
@@ -33,6 +35,7 @@ class Payload:
         self.response = response
         self._metadata = metadata
         self.storage_id = storage_id
+        self.correlation_id = correlation_id or uuid4().hex
 
     @property
     def metadata(self) -> dict[str, Any]:
@@ -43,10 +46,6 @@ class Payload:
 
     def add_metadata(self, key: str, value: Any) -> None:
         self._metadata[key] = value
-
-    @property
-    def correlation_id(self) -> str:
-        return self.url.hash
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,6 +59,7 @@ class Payload:
             "response": asdict(self.response) if self.response else None,
             "metadata": self._metadata,
             "storage_id": self.storage_id,
+            "correlation_id": self.correlation_id,
         }
 
     @classmethod
@@ -81,4 +81,5 @@ class Payload:
             ) if response else None,
             metadata=data.get("metadata", {}),
             storage_id=data.get("storage_id"),
+            correlation_id=data.get("correlation_id"),
         )

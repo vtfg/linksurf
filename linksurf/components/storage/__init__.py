@@ -87,11 +87,11 @@ class Storage(Component):
             "address": payload.url.address,
             "hash": payload.url.hash,
             "domain": payload.url.domain,
+            "correlation_id": payload.correlation_id,
             "request": asdict(payload.request) if payload.request else None,
             "response": asdict(payload.response) if payload.response else None,
             "content": asdict(payload.content) if payload.content else None,
-            "redirects": [asdict(r) for r in payload.redirects] or None,
-            "links": payload.get_metadata("links"),
+            "redirects": [asdict(r) for r in payload.redirects],
             "metadata": {k: v for k, v in payload.metadata.items() if k != "links"},
             "last_crawled_at": datetime.now(timezone.utc),
         }
