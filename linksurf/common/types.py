@@ -2,10 +2,12 @@ class Error:
     def __init__(self,
                  message: str,
                  retriable: bool = True,
+                 unexpected: bool = False,
                  exception: BaseException | None = None,
                  delay_seconds: int | None = None):
         self.message = message
         self.retriable = retriable
+        self.unexpected = unexpected
         self.exception = exception
         self.delay_seconds = delay_seconds
 

@@ -43,6 +43,7 @@ class ComponentErrorEvent:
     retriable: bool
     retrying: bool
     retries: int
+    unexpected: bool
     exception: BaseException | None = None
     name: Literal["component.error"] = field(default="component.error", init=False)
 

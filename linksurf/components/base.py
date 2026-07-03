@@ -361,7 +361,10 @@ class Component:
             EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
                                                 topic=topic, retrying=data.retrying, retries=data.retries))
 
-            error = callback(data)
+            try:
+                error = callback(data)
+            except Exception as e:
+                error = Error("Uncaught error.", exception=e, retriable=False, unexpected=True)
 
             end_time = time.perf_counter()
             duration_ms = (end_time - start_time) * 1000
@@ -373,6 +376,7 @@ class Component:
                                         retriable=error.retriable,
                                         retrying=data.retrying,
                                         retries=data.retries,
+                                        unexpected=error.unexpected,
                                         exception=error.exception))
 
                 if error.retriable and data.retries < MAX_RETRIES:
