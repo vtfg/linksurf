@@ -38,7 +38,7 @@ class RabbitMQBroker(Broker):
             self.connection.close()
 
     def seed(self, topic: str, data: Any):
-        self.publish(topic, data)
+        self.publish(topic, data, MAX_QUEUE_PRIORITY)
 
     def subscribe(self, topic: str, handler: Callable[[Payload], None]):
         self.channel.queue_declare(queue=topic, durable=True, arguments={"x-max-priority": MAX_QUEUE_PRIORITY})
