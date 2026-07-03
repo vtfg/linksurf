@@ -60,6 +60,9 @@ class Downloader(Component):
         if response is None:
             return Error("HTTP fetch returned empty response.", retriable=True)
 
+        if not response.ok:
+            return Error("HTTP response has not ok status.", retriable=False)
+
         if response.redirects:
             self._append_redirects(payload, response.redirects)
 
