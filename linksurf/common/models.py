@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from linksurf.common.types import CaseInsensitiveDict
@@ -175,6 +176,7 @@ class MimeType(str, Enum):
 class Content:
     key: str
     type: MimeType
+    extracted: dict[str, dict[str, Any] | list[Any]] | None = None
 
 
 class Country:
