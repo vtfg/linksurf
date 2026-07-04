@@ -1,9 +1,15 @@
+from linksurf.broker.base import Broker
 from linksurf.common.models import URL, MimeType, Link
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
-from linksurf.components.parser.extractors import LinksExtractor, MetadataExtractor, Extractor
+from linksurf.components.parser.extractors import (
+    ExtractorsRegistry,
+    ExtractorRules,
+    LinksExtractor,
+    MetadataExtractor,
+)
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.blob import BlobStorage
@@ -13,6 +19,14 @@ class Parser(Component):
     TOPIC = "url.parse"
 
     blob_storage: BlobStorage
+
+    def __init__(self, broker: Broker):
+        super().__init__(broker)
+
+        self.extractors_registry = ExtractorsRegistry()
+        self.extractors_registry.register(MetadataExtractor(), ExtractorRules(mime_types=[MimeType.HTML]))
+        self.extractors_registry.register(LinksExtractor(), ExtractorRules(mime_types=[MimeType.HTML]),
+                                          self._filter_and_publish_links)
 
     def on_start(self, settings: Settings, services: Services):
         super().on_start(settings, services)
@@ -33,25 +47,31 @@ class Parser(Component):
         if contents is None:
             return Error("Blob downloaded content is empty.", retriable=False)
 
-        match payload.content.type:
-            case MimeType.HTML:
-                try:
-                    html = contents.decode(payload.response.encoding)
+        matching_extractors = self.extractors_registry.match(payload.content.type, payload.url.address)
 
-                    metadata = MetadataExtractor.extract(page_url=payload.url, html=html)
-                    links = LinksExtractor.extract(page_url=payload.url, html=html)
+        if len(matching_extractors) == 0:
+            return Error("Content type not supported.", retriable=False)
 
-                    payload.content.extracted = {"metadata": metadata, "links": links}
+        extracted = {}
 
-                    Logger().debug("component.debug",
-                                   message=f"Extracted {len(links)} links from {payload.url.address}")
+        for entry in matching_extractors:
+            try:
+                data = entry.extractor.extract(payload, contents)
 
-                    self._filter_and_publish_links(payload, links)
+                if entry.callback:
+                    entry.callback(payload, data)
+            except Exception as e:
+                Logger().warning(
+                    "component.warning",
+                    message=f"Extractor {entry.extractor.NAME} failed for {payload.url.address}",
+                    exception=str(e),
+                )
 
-                except Exception as e:
-                    return Error("Content extraction failed.", exception=e, retriable=False)
-            case _:
-                return Error("Content type not supported.", retriable=False)
+                continue
+
+            extracted[entry.extractor.NAME] = data
+
+        payload.content.extracted = extracted
 
         self.publish("url.store", payload)
 

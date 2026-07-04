@@ -1,24 +1,68 @@
-from typing import Any
+import re
+from dataclasses import dataclass, field
+from typing import Any, Callable
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from linksurf.common.models import Link, LinkType, URL
+from linksurf.common.models import Link, LinkType, URL, MimeType
+from linksurf.common.payload import Payload
 
 
 class Extractor:
     NAME: str
 
-    @staticmethod
-    def extract(page_url: URL, html: str) -> Any:
+    def extract(self, payload: Payload, contents: bytes) -> Any:
         pass
+
+
+@dataclass
+class ExtractorRules:
+    mime_types: list[MimeType] | None = None  # None = matches any mime type
+    url_pattern: str | None = None  # None = matches any URL
+
+    def __post_init__(self) -> None:
+        self._url_pattern_regex = re.compile(self.url_pattern) if self.url_pattern else None
+        self._mime_types_set = set(self.mime_types) if self.mime_types else None
+
+    def matches(self, mime_type: MimeType, url: str) -> bool:
+        if self._mime_types_set is not None and mime_type not in self._mime_types_set:
+            return False
+
+        if self._url_pattern_regex is not None and not self._url_pattern_regex.search(url):
+            return False
+
+        return True
+
+
+type ExtractorCallback = Callable[[Payload, Any], None]
+
+
+@dataclass(frozen=True)
+class ExtractorEntry:
+    extractor: Extractor
+    rules: ExtractorRules = field(default_factory=ExtractorRules)
+    callback: ExtractorCallback | None = None
+
+
+class ExtractorsRegistry:
+    def __init__(self):
+        self._entries: list[ExtractorEntry] = []
+
+    def register(self, extractor: Extractor, rules: ExtractorRules = ExtractorRules(),
+                 callback: ExtractorCallback | None = None) -> None:
+        self._entries.append(ExtractorEntry(extractor, rules, callback))
+
+    def match(self, mime_type: MimeType, url: str) -> list[ExtractorEntry]:
+        return [entry for entry in self._entries if entry.rules.matches(mime_type, url)]
 
 
 class MetadataExtractor(Extractor):
     NAME = "metadata"
 
-    @staticmethod
-    def extract(page_url: URL, html: str) -> dict[str, str | list]:
+    def extract(self, payload: Payload, contents: bytes) -> dict[str, str | list]:
+        html = contents.decode(payload.response.encoding)
+
         soup = BeautifulSoup(html, "html.parser")
 
         html_tag = soup.find("html")
@@ -65,9 +109,12 @@ class MetadataExtractor(Extractor):
 class LinksExtractor(Extractor):
     NAME = "links"
 
-    @staticmethod
-    def extract(page_url: URL, html: str) -> list[Link]:
+    def extract(self, payload: Payload, contents: bytes) -> list[Link]:
+        html = contents.decode(payload.response.encoding)
+
         soup = BeautifulSoup(html, "html.parser")
+
+        page_url = payload.url
 
         base_url = page_url.address
 
