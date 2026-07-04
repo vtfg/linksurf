@@ -1,7 +1,19 @@
 from dataclasses import asdict
+from typing import Any
 
 from linksurf.events import Event
 from linksurf.logger import Logger
+
+MAX_LOGGED_LIST_ITEMS = 3
+
+
+def _truncate_list(value: Any) -> Any:
+    if isinstance(value, list) and len(value) > MAX_LOGGED_LIST_ITEMS:
+        remaining = len(value) - MAX_LOGGED_LIST_ITEMS
+
+        return [*value[:MAX_LOGGED_LIST_ITEMS], f"(+{remaining})"]
+
+    return value
 
 
 class Listener:
@@ -18,7 +30,10 @@ class LoggingListener(Listener):
         exception = getattr(event, "exception", None)
         data = asdict(event)
         name = data.pop("name")
+        data.pop("correlation_id", None)
         data.pop("exception", None)
+
+        data = {key: _truncate_list(value) for key, value in data.items()}
 
         if name.endswith(".error"):
             exc_info = None

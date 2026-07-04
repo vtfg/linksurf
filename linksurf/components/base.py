@@ -100,6 +100,7 @@ class Component:
         self.prioritizer: Prioritizer | None = None
 
         self._component_name = type(self).__name__
+        self._execution_correlation_id: str | None = None
 
     def on_start(self, settings: Settings, services: Services):
         for rule in self.rules:
@@ -354,6 +355,8 @@ class Component:
             url = data.url.address
             start_time = time.perf_counter()
 
+            self._execution_correlation_id = correlation_id
+
             if data.retrying:
                 # increment before processing so events reflect the current retry count
                 data.retries += 1
@@ -408,26 +411,30 @@ class Component:
     def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
         from linksurf.events import ComponentPublishEvent
 
+        correlation_id = self._execution_correlation_id
+
         payloads = data if isinstance(data, list) else [data]
 
         for payload in payloads:
             self._prepare_publish(topic, payload, priority)
 
-            EventBus().emit(ComponentPublishEvent(
-                url=payload.url.address, component=self._component_name,
-                topic=topic, priority=payload.priority,
-            ))
-
             self.broker.publish(topic, payload, payload.priority)
+
+        EventBus().emit(ComponentPublishEvent(
+            correlation_id=correlation_id, component=self._component_name, topic=topic,
+            urls=[f"{payload.url.address}:{payload.priority}" for payload in payloads],
+        ))
 
     def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int, priority: int | None = None) -> None:
         from linksurf.events import ComponentPublishEvent
 
         self._prepare_publish(topic, payload, priority)
 
+        correlation_id = self._execution_correlation_id or payload.correlation_id
+
         EventBus().emit(ComponentPublishEvent(
-            url=payload.url.address, component=self._component_name,
-            topic=topic, priority=payload.priority, delay=delay_seconds,
+            correlation_id=correlation_id, component=self._component_name, topic=topic,
+            urls=[f"{payload.url.address}:{payload.priority}"], delay=delay_seconds,
         ))
 
         self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
