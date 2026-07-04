@@ -16,12 +16,6 @@ class Logger:
 
         return cls._instance
 
-    @staticmethod
-    def _drop_correlation_id(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-        event_dict.pop("correlation_id", None)
-
-        return event_dict
-
     def _setup(self) -> None:
         site_packages = site.getsitepackages()
 
@@ -29,7 +23,6 @@ class Logger:
             processors=[
                 structlog.stdlib.add_log_level,
                 structlog.processors.TimeStamper("iso", utc=True),
-                self._drop_correlation_id,
                 structlog.dev.ConsoleRenderer(
                     exception_formatter=structlog.dev.RichTracebackFormatter(
                         show_locals=True,
