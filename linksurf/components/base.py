@@ -422,7 +422,7 @@ class Component:
 
         EventBus().emit(ComponentPublishEvent(
             correlation_id=correlation_id, component=self._component_name, topic=topic,
-            urls=[f"{payload.url.address}:{payload.priority}" for payload in payloads],
+            urls=[(payload.url.address, payload.priority) for payload in payloads],
         ))
 
     def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int, priority: int | None = None) -> None:
@@ -434,7 +434,7 @@ class Component:
 
         EventBus().emit(ComponentPublishEvent(
             correlation_id=correlation_id, component=self._component_name, topic=topic,
-            urls=[f"{payload.url.address}:{payload.priority}"], delay=delay_seconds,
+            urls=[(payload.url.address, payload.priority)], delay=delay_seconds,
         ))
 
         self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)

@@ -53,7 +53,7 @@ class ComponentPublishEvent:
     correlation_id: str
     component: str
     topic: str
-    urls: list[str]  # "{address}:{priority}"
+    urls: list[tuple[str, int]]  # (address, priority)
     delay: int | None = None
     name: Literal["component.publish"] = field(default="component.publish", init=False)
 
