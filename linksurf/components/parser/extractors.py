@@ -19,17 +19,21 @@ class Extractor:
 @dataclass
 class ExtractorRules:
     mime_types: list[MimeType] | None = None  # None = matches any mime type
-    url_pattern: str | None = None  # None = matches any URL
+    domain: str | None = None  # None = matches any domain; exact match, no subdomain matching
+    path_pattern: str | None = None  # None = matches any path; regex applied to URL.path
 
     def __post_init__(self) -> None:
-        self._url_pattern_regex = re.compile(self.url_pattern) if self.url_pattern else None
         self._mime_types_set = set(self.mime_types) if self.mime_types else None
+        self._path_pattern_regex = re.compile(self.path_pattern) if self.path_pattern else None
 
-    def matches(self, mime_type: MimeType, url: str) -> bool:
+    def matches(self, mime_type: MimeType, url: URL) -> bool:
         if self._mime_types_set is not None and mime_type not in self._mime_types_set:
             return False
 
-        if self._url_pattern_regex is not None and not self._url_pattern_regex.search(url):
+        if self.domain is not None and url.domain != self.domain:
+            return False
+
+        if self._path_pattern_regex is not None and not self._path_pattern_regex.search(url.path):
             return False
 
         return True
@@ -53,7 +57,7 @@ class ExtractorsRegistry:
                  callback: ExtractorCallback | None = None) -> None:
         self._entries.append(ExtractorEntry(extractor, rules, callback))
 
-    def match(self, mime_type: MimeType, url: str) -> list[ExtractorEntry]:
+    def match(self, mime_type: MimeType, url: URL) -> list[ExtractorEntry]:
         return [entry for entry in self._entries if entry.rules.matches(mime_type, url)]
 
 
@@ -104,6 +108,25 @@ class MetadataExtractor(Extractor):
             "opengraph": opengraph or None,
             "article": article or None,
         }
+
+
+class AuthorExtractor(Extractor):
+    NAME = "author"
+
+    def extract(self, payload: Payload, contents: bytes) -> dict[str, str | None]:
+        html = contents.decode(payload.response.encoding)
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        details = soup.select_one(".author-details")
+
+        name_tag = details.select_one(".author-title") if details else None
+        description_tag = details.select_one(".author-description") if details else None
+
+        name = name_tag.get_text(strip=True) if name_tag else None
+        description = description_tag.get_text(strip=True) if description_tag else None
+
+        return {"name": name, "description": description}
 
 
 class LinksExtractor(Extractor):

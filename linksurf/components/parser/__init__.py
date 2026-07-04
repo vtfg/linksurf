@@ -9,6 +9,7 @@ from linksurf.components.parser.extractors import (
     ExtractorRules,
     LinksExtractor,
     MetadataExtractor,
+    AuthorExtractor,
 )
 from linksurf.logger import Logger
 from linksurf.services import Services
@@ -25,8 +26,15 @@ class Parser(Component):
 
         self.extractors_registry = ExtractorsRegistry()
         self.extractors_registry.register(MetadataExtractor(), ExtractorRules(mime_types=[MimeType.HTML]))
-        self.extractors_registry.register(LinksExtractor(), ExtractorRules(mime_types=[MimeType.HTML]),
-                                          self._filter_and_publish_links)
+        self.extractors_registry.register(
+            LinksExtractor(),
+            ExtractorRules(mime_types=[MimeType.HTML]),
+            callback=self._filter_and_publish_links
+        )
+        self.extractors_registry.register(
+            AuthorExtractor(),
+            ExtractorRules(mime_types=[MimeType.HTML], domain="quotes.toscrape.com", path_pattern=r"^/author/"),
+        )
 
     def on_start(self, settings: Settings, services: Services):
         super().on_start(settings, services)
@@ -47,7 +55,7 @@ class Parser(Component):
         if contents is None:
             return Error("Blob downloaded content is empty.", retriable=False)
 
-        matching_extractors = self.extractors_registry.match(payload.content.type, payload.url.address)
+        matching_extractors = self.extractors_registry.match(payload.content.type, payload.url)
 
         if len(matching_extractors) == 0:
             return Error("Content type not supported.", retriable=False)
