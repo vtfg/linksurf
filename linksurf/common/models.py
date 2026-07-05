@@ -60,6 +60,7 @@ class LinkType(str, Enum):
 class Link:
     source: str
     target: str
+    raw_target: str
     type: LinkType
     text: str | None
     rel: str | None

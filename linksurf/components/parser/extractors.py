@@ -75,8 +75,8 @@ class MetadataExtractor(Extractor):
         title_tag = soup.find("title")
         title = title_tag.get_text(strip=True) if title_tag else None
 
-        base_tag = soup.select_one("head > base")
-        base = base_tag.get("href") if base_tag else None
+        base_tag = soup.select_one("head > base[href]")
+        base = base_tag.get("href").strip() if base_tag else None
 
         metas = {}
         opengraph = {}
@@ -141,15 +141,15 @@ class LinksExtractor(Extractor):
 
         base_url = page_url.address
 
-        base_tag = soup.select_one("head > base")
+        base_tag = soup.select_one("head > base[href]")
 
         if base_tag:
-            base_tag_href = base_tag.get("href")
+            # base href may be relative
+            resolved_base = urljoin(page_url.address, base_tag.get("href").strip())
+            resolved_base_url = URL(resolved_base)
 
-            if base_tag_href:
-                # TODO: Validate URL (using pip package "validators"?)
-
-                base_url = base_tag_href.strip()
+            if resolved_base_url.scheme in ("http", "https") and resolved_base_url.domain:
+                base_url = resolved_base
 
         links: list[Link] = []
 
@@ -176,6 +176,7 @@ class LinksExtractor(Extractor):
             links.append(Link(
                 source=page_url.address,
                 target=target,
+                raw_target=href,
                 type=link_type,
                 text=a.get_text(strip=True) or None,
                 rel=rel,
