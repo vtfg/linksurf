@@ -1,5 +1,8 @@
+import logging
 from dataclasses import asdict
 from typing import Any
+
+from logtail import LogtailHandler
 
 from linksurf.events import Event
 from linksurf.logger import Logger
@@ -46,3 +49,32 @@ class LoggingListener(Listener):
             Logger().error(name, exc_info=exc_info, **data)
         else:
             Logger().info(name, **data)
+
+
+class BetterStackListener(Listener):
+    """
+    Sends every event to BetterStack as a structured log via LogtailHandler,
+    keeping all parameters for filtering and analysis.
+
+    Only events explicitly logged here are sent.
+    """
+
+    EVENTS = ["*"]
+
+    def __init__(self, source_token: str, host: str):
+        handler = LogtailHandler(source_token=source_token, host=host)
+
+        self._logger = logging.getLogger("linksurf.betterstack")
+        self._logger.setLevel(logging.INFO)
+        self._logger.propagate = False
+        self._logger.addHandler(handler)
+
+    def handle(self, event: Event) -> None:
+        exception = getattr(event, "exception", None)
+        data = asdict(event)
+        name = data.pop("name")
+        data.pop("exception", None)
+
+        level = logging.ERROR if name.endswith(".error") else logging.INFO
+
+        self._logger.log(level, name, extra=data, exc_info=exception)

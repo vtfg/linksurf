@@ -9,9 +9,10 @@ from linksurf.components.frontier import Frontier
 from linksurf.components.parser import Parser
 from linksurf.components.storage import Storage
 from linksurf.events.bus import EventBus
-from linksurf.events.listeners import Listener, LoggingListener
+from linksurf.events.listeners import Listener, LoggingListener, BetterStackListener
 from linksurf.logger import Logger
 from linksurf.services import Services
+from linksurf.utils.env import get_env
 
 
 class Linksurf:
@@ -27,6 +28,10 @@ class Linksurf:
 
         self.listeners: list[Listener] = [
             LoggingListener(),
+            BetterStackListener(
+                source_token=get_env("BETTERSTACK_SOURCE_TOKEN"),
+                host=get_env("BETTERSTACK_HOST")
+            )
         ]
 
     def run(self, seed: list[URL]) -> None:
@@ -69,6 +74,8 @@ class Linksurf:
 
         signal.signal(signal.SIGINT, on_signal)
         signal.signal(signal.SIGTERM, on_signal)
+
+        Logger().info("broker.loop")
 
         self.broker.loop()
 
