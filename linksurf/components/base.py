@@ -1,0 +1,453 @@
+import time
+from dataclasses import dataclass
+from typing import Callable, NamedTuple
+
+from linksurf.broker.base import Broker
+from linksurf.common.constants import MAX_RETRIES, MIN_QUEUE_PRIORITY
+from linksurf.common.payload import Payload
+from linksurf.common.settings import Settings
+from linksurf.common.types import Response, Error
+from linksurf.events.bus import EventBus
+from linksurf.logger import Logger
+from linksurf.services import Services
+
+
+class Executor:
+    def on_start(self, settings: Settings, services: Services):
+        pass
+
+    def on_stop(self):
+        pass
+
+    def execute(self, payload: Payload):
+        pass
+
+
+class MiddlewareResponse(Response[Payload]):
+    pass
+
+
+# Enriches metadata
+class Middleware(Executor):
+    def execute(self, payload: Payload) -> MiddlewareResponse:
+        pass
+
+
+class RuleResponse(Response[bool]):
+    pass
+
+
+class Rule(Executor):
+    def execute(self, payload: Payload) -> RuleResponse:
+        pass
+
+
+class FilterResponse(Response[bool]):
+    pass
+
+
+# Uses metadata to decide if URL should be skipped
+class Filter(Executor):
+    DEPENDS_ON: list[Middleware]
+
+    def execute(self, payload: Payload) -> FilterResponse:
+        pass
+
+
+class PrioritizerResponse(Response[int]):
+    pass
+
+
+class Prioritizer(Executor):
+    def execute(self, payload: Payload) -> PrioritizerResponse:
+        pass
+
+
+class DeduplicatorCheckResponse(NamedTuple):
+    seen: bool | None
+    error: Error | None
+
+
+@dataclass
+class DeduplicatorRegisterResponse:
+    error: Error | None
+
+
+class Deduplicator:
+    def on_start(self, settings: Settings, services: Services):
+        pass
+
+    def on_stop(self):
+        pass
+
+    def check(self, payload: Payload) -> DeduplicatorCheckResponse:
+        pass
+
+    def register(self, payload: Payload) -> Error | None:
+        pass
+
+    def unregister(self, payload: Payload) -> Error | None:
+        pass
+
+
+class Component:
+    TOPIC: str
+
+    def __init__(self, broker: Broker) -> None:
+        self.broker = broker
+
+        self.rules: list[Rule] = []
+        self.deduplicator: Deduplicator | None = None
+        self.middlewares: list[Middleware] = []
+        self.filters: list[Filter] = []
+        self.prioritizer: Prioritizer | None = None
+
+        self._component_name = type(self).__name__
+        self._execution_correlation_id: str | None = None
+
+    def on_start(self, settings: Settings, services: Services):
+        for rule in self.rules:
+            rule.on_start(settings, services)
+
+        if self.deduplicator is not None:
+            self.deduplicator.on_start(settings, services)
+
+        for middleware in self.middlewares:
+            middleware.on_start(settings, services)
+
+        for filter in self.filters:
+            filter.on_start(settings, services)
+
+        if self.prioritizer is not None:
+            self.prioritizer.on_start(settings, services)
+
+    def on_stop(self):
+        pass
+
+    def rule(self, payload: Payload) -> tuple[bool | None, Error | None]:
+        """
+        Executes all rules. Returns True if the component should continue executing.
+        """
+
+        from linksurf.events import (
+            RuleStartEvent, RuleFinishEvent, RuleErrorEvent,
+        )
+
+        correlation_id = payload.correlation_id
+        url = payload.url.address
+        component_name = type(self).__name__
+
+        for rule in self.rules:
+            rule_name = type(rule).__name__
+
+            EventBus().emit(
+                RuleStartEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name))
+
+            response = rule.execute(payload)
+
+            if response.error is not None:
+                EventBus().emit(
+                    RuleErrorEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
+                                   error=response.error.message, retriable=response.error.retriable,
+                                   exception=response.error.exception))
+
+                return None, response.error
+
+            EventBus().emit(
+                RuleFinishEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
+                                passed=bool(response.data)))
+
+            if not response.data:
+                return False, None
+
+        return True, None
+
+    def deduplicate(self, payload: Payload) -> tuple[bool | None, Error | None]:
+        """
+        Checks if duplicate and registers if not.
+        """
+
+        if self.deduplicator is None:
+            raise Exception("Deduplicator not defined.")
+
+        from linksurf.events import (
+            DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
+        )
+
+        correlation_id = payload.correlation_id
+        url = payload.url.address
+        component_name = type(self).__name__
+        deduplicator_name = type(self.deduplicator).__name__
+
+        EventBus().emit(DeduplicatorStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                               deduplicator=deduplicator_name))
+
+        response = self.deduplicator.check(payload)
+
+        if response.error is not None:
+            EventBus().emit(
+                DeduplicatorErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                       deduplicator=deduplicator_name, error=response.error.message,
+                                       retriable=response.error.retriable, exception=response.error.exception))
+
+            return None, response.error
+
+        if response.seen:
+            EventBus().emit(
+                DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                        deduplicator=deduplicator_name, seen=True))
+
+            return True, None
+
+        error = self.deduplicator.register(payload)
+
+        if error is not None:
+            EventBus().emit(
+                DeduplicatorErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                       deduplicator=deduplicator_name, error=error.message,
+                                       retriable=error.retriable, exception=error.exception))
+
+            return False, error
+
+        EventBus().emit(
+            DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                    deduplicator=deduplicator_name, seen=False))
+
+        return False, None
+
+    def enrich(self, payload: Payload) -> Error | None:
+        """
+        Executes all middlewares. Updates payload in place.
+        """
+
+        from linksurf.events import (
+            MiddlewareStartEvent, MiddlewareFinishEvent, MiddlewareErrorEvent,
+        )
+
+        correlation_id = payload.correlation_id
+        url = payload.url.address
+        component_name = type(self).__name__
+
+        for middleware in self.middlewares:
+            middleware_name = type(middleware).__name__
+            metadata_snapshot = dict(payload.metadata)
+
+            EventBus().emit(MiddlewareStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                 middleware=middleware_name))
+
+            response = middleware.execute(payload)
+
+            if response.error is not None:
+                EventBus().emit(
+                    MiddlewareErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                         middleware=middleware_name,
+                                         error=response.error.message,
+                                         retriable=response.error.retriable,
+                                         exception=response.error.exception))
+
+                return response.error
+
+            metadata_diff = {k: v for k, v in payload.metadata.items() if metadata_snapshot.get(k) != v}
+
+            EventBus().emit(
+                MiddlewareFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                      middleware=middleware_name, data=metadata_diff))
+
+        return None
+
+    def filter(self, payload: Payload) -> tuple[bool | None, Error | None]:
+        """
+        Executes all middlewares and filters. Returns True if the component should continue executing.
+        """
+
+        from linksurf.events import (
+            FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
+        )
+
+        correlation_id = payload.correlation_id
+        url = payload.url.address
+        component_name = type(self).__name__
+
+        error = self.enrich(payload)
+
+        if error is not None:
+            return None, error
+
+        for filter in self.filters:
+            filter_name = type(filter).__name__
+
+            EventBus().emit(
+                FilterStartEvent(correlation_id=correlation_id, url=url, component=component_name, filter=filter_name))
+
+            response = filter.execute(payload)
+
+            if response.error is not None:
+                EventBus().emit(
+                    FilterErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                     filter=filter_name, error=response.error.message,
+                                     retriable=response.error.retriable,
+                                     exception=response.error.exception))
+
+                return None, response.error
+
+            EventBus().emit(
+                FilterFinishEvent(correlation_id=correlation_id, url=url, component=component_name, filter=filter_name,
+                                  passed=bool(response.data)))
+
+            if not response.data:
+                return False, None
+
+        return True, None
+
+    def prioritize(self, payload: Payload) -> tuple[int | None, Error | None]:
+        """
+        Calculates and returns a priority number.
+        """
+
+        if self.prioritizer is None:
+            raise Exception("Prioritizer not defined.")
+
+        from linksurf.events import (
+            PrioritizerStartEvent, PrioritizerFinishEvent, PrioritizerErrorEvent,
+        )
+
+        correlation_id = payload.correlation_id
+        url = payload.url.address
+        component_name = type(self).__name__
+        prioritizer_name = type(self.prioritizer).__name__
+
+        EventBus().emit(PrioritizerStartEvent(
+            correlation_id=correlation_id, url=url,
+            component=component_name, prioritizer=prioritizer_name,
+        ))
+
+        response = self.prioritizer.execute(payload)
+
+        if response.error is not None:
+            EventBus().emit(PrioritizerErrorEvent(
+                correlation_id=correlation_id, url=url,
+                component=component_name, prioritizer=prioritizer_name,
+                error=response.error.message,
+                retriable=response.error.retriable,
+                exception=response.error.exception,
+            ))
+
+            return None, response.error
+
+        EventBus().emit(PrioritizerFinishEvent(
+            correlation_id=correlation_id, url=url,
+            component=component_name, prioritizer=prioritizer_name,
+            priority=response.data,
+        ))
+
+        return response.data, None
+
+    def subscribe(self, topic: str, callback: Callable[[Payload], Error | None]) -> None:
+        from linksurf.events import ComponentSubscribeEvent
+
+        component_name = type(self).__name__
+
+        EventBus().emit(ComponentSubscribeEvent(component=component_name, topic=topic))
+
+        def handler(data: Payload):
+            from linksurf.events import (
+                ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
+            )
+
+            correlation_id = data.correlation_id
+            url = data.url.address
+            start_time = time.perf_counter()
+
+            self._execution_correlation_id = correlation_id
+
+            if data.retrying:
+                # increment before processing so events reflect the current retry count
+                data.retries += 1
+
+            EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                topic=topic, retrying=data.retrying, retries=data.retries))
+
+            try:
+                error = callback(data)
+            except Exception as e:
+                error = Error("Uncaught error.", exception=e, retriable=False, unexpected=True)
+
+            end_time = time.perf_counter()
+            duration_ms = (end_time - start_time) * 1000
+
+            if error is not None:
+                EventBus().emit(
+                    ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                        error=error.message,
+                                        retriable=error.retriable,
+                                        retrying=data.retrying,
+                                        retries=data.retries,
+                                        unexpected=error.unexpected,
+                                        exception=error.exception))
+
+                if error.retriable and data.retries < MAX_RETRIES:
+                    data.retrying = True
+
+                    if error.delay_seconds:
+                        self.delayed_publish(self.TOPIC, data, error.delay_seconds)
+                    else:
+                        self.publish(self.TOPIC, data)
+                else:
+                    Logger().warning(
+                        "component.discard",
+                        url=data.url.address,
+                        topic=self.TOPIC,
+                        retries=data.retries,
+                        reason=error.message,
+                        retriable=error.retriable,
+                    )
+
+                return
+
+            EventBus().emit(
+                ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                     topic=topic, duration_ms=duration_ms,
+                                     retrying=data.retrying, retries=data.retries))
+
+        self.broker.subscribe(topic, handler)
+
+    def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
+        from linksurf.events import ComponentPublishEvent
+
+        correlation_id = self._execution_correlation_id
+
+        payloads = data if isinstance(data, list) else [data]
+
+        for payload in payloads:
+            self._prepare_publish(topic, payload, priority)
+
+            self.broker.publish(topic, payload, payload.priority)
+
+        EventBus().emit(ComponentPublishEvent(
+            correlation_id=correlation_id, component=self._component_name, topic=topic,
+            urls=[(payload.url.address, payload.priority) for payload in payloads],
+        ))
+
+    def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int, priority: int | None = None) -> None:
+        from linksurf.events import ComponentPublishEvent
+
+        self._prepare_publish(topic, payload, priority)
+
+        correlation_id = self._execution_correlation_id or payload.correlation_id
+
+        EventBus().emit(ComponentPublishEvent(
+            correlation_id=correlation_id, component=self._component_name, topic=topic,
+            urls=[(payload.url.address, payload.priority)], delay=delay_seconds,
+        ))
+
+        self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
+
+    def _prepare_publish(self, topic: str, payload: Payload, priority: int | None) -> None:
+        if priority is not None:
+            payload.priority = priority
+
+        if topic != self.TOPIC:
+            payload.retrying = False
+            payload.retries = 0
+        else:
+            payload.priority = max(MIN_QUEUE_PRIORITY, payload.priority - 1)
