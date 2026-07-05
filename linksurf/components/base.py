@@ -86,6 +86,9 @@ class Deduplicator:
     def register(self, payload: Payload) -> Error | None:
         pass
 
+    def unregister(self, payload: Payload) -> Error | None:
+        pass
+
 
 class Component:
     TOPIC: str

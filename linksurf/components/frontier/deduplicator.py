@@ -26,3 +26,11 @@ class URLDeduplicator(Deduplicator):
 
         return None
 
+    def unregister(self, payload: Payload) -> Error | None:
+        try:
+            self.cache.unmark_url_seen(payload.url)
+        except Exception as e:
+            return Error("Cache write failed.", retriable=True, exception=e)
+
+        return None
+

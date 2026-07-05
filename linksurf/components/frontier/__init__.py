@@ -14,6 +14,7 @@ from linksurf.components.frontier.rules import (
     BlockedDomainsRule,
     BLOCKED_EXTENSIONS,
 )
+from linksurf.logger import Logger
 from linksurf.services import Services
 
 
@@ -68,9 +69,16 @@ class Frontier(Component):
 
         if error is not None:
             if error.retriable:
-                # TODO: Remove message from deduplicator's cache
+                unregister_error = self.deduplicator.unregister(payload)
 
-                pass
+                if unregister_error is not None:
+                    Logger().warning(
+                        "component.warning",
+                        message=f"Failed to unregister from deduplicator.",
+                        url=payload.url.address,
+                        error=unregister_error.message,
+                        exception=str(unregister_error.exception) if unregister_error.exception else None,
+                    )
 
             return error
 

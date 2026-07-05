@@ -53,6 +53,9 @@ class Cache(Service):
     def mark_url_seen(self, url: URL) -> None:
         pass
 
+    def unmark_url_seen(self, url: URL) -> None:
+        pass
+
     def is_url_seen(self, url: URL) -> bool:
         pass
 
@@ -130,6 +133,9 @@ class RedisCache(Cache):
 
     def mark_url_seen(self, url: URL) -> None:
         self._client.sadd(_URL_SEEN_CACHE_KEY, url.hash)
+
+    def unmark_url_seen(self, url: URL) -> None:
+        self._client.srem(_URL_SEEN_CACHE_KEY, url.hash)
 
     def is_url_seen(self, url: URL) -> bool:
         return self._client.sismember(_URL_SEEN_CACHE_KEY, url.hash) == 1
