@@ -1,8 +1,7 @@
 from dotenv import load_dotenv
 
-from linksurf.application import Linksurf
+from linksurf.application import Linksurf, Seed
 from linksurf.broker.rabbitmq import RabbitMQBroker
-from linksurf.common.models import URL
 from linksurf.common.settings import Settings
 from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
@@ -14,27 +13,7 @@ from linksurf.utils.env import get_env
 load_dotenv()
 
 if __name__ == "__main__":
-    seed = [
-        # Base cases for Rule/Filter testing
-        # URL("http://example.com"),
-        # URL("https://example.com"),
-        # URL("https://example.com/abc"),
-        # URL("https://example.com/def"),
-        # URL("https://example.com/ghi"),
-        # URL("http://example.com:80"),
-        # URL("https://example.com:443"),
-        # URL("https://example.com:42069"),
-        # URL("ftp://username:password@example.com"),
-
-        # Safe and with 100s of pages
-        URL("https://quotes.toscrape.com/"),
-
-        # Not allowed
-        URL("https://www.reddit.com/"),
-
-        # HTML's <base> tag testing
-        URL("https://base-tag-test.vercel.app/"),
-    ]
+    seed = Seed.from_file("seed.txt")
 
     services = Services(
         database=MongoDatabase(url=get_env("MONGODB_URL")),

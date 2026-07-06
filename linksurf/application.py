@@ -1,4 +1,7 @@
+import mimetypes
+import re
 import signal
+from typing import Self
 
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL
@@ -13,6 +16,41 @@ from linksurf.events.listeners import Listener, LoggingListener, BetterStackList
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.utils.env import get_env
+
+
+class Seed:
+    def __init__(self, urls: list[URL]) -> None:
+        self.urls = urls
+
+    @classmethod
+    def from_file(cls, path: str) -> Self:
+        """
+        Reads all valid URLs from a plain text file. Ignores lines starting with a # for testing convenience.
+
+        Only HTTP/HTTPS URLs are supported.
+        """
+
+        mime_type, _ = mimetypes.guess_type(path)
+
+        if mime_type and not mime_type.startswith('text/'):
+            raise Exception(f"Seed file should be a plain text file.")
+
+        urls: list[str] = []
+
+        url_regex = "^https?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$"
+
+        with open(path, "r") as file:
+            for line in file:
+                if line.startswith("#"):
+                    continue
+
+                matches = re.findall(url_regex, line)
+
+                urls.extend(matches)
+
+        unique_urls = set(urls)
+
+        return cls([URL(url) for url in unique_urls])
 
 
 class Linksurf:
@@ -34,7 +72,7 @@ class Linksurf:
             )
         ]
 
-    def run(self, seed: list[URL]) -> None:
+    def run(self, seed: Seed) -> None:
         for listener in self.listeners:
             for name in listener.EVENTS:
                 EventBus().on(name, listener.handle)
@@ -64,7 +102,9 @@ class Linksurf:
         for component in components:
             component.on_start(self.settings, self.services)
 
-        for url in seed:
+        Logger().info("broker.seed", count=len(seed.urls))
+
+        for url in seed.urls:
             self.broker.seed(Frontier.TOPIC, Payload(url=url))
 
         def on_signal(signum, frame):

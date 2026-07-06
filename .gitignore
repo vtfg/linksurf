@@ -1,5 +1,7 @@
 .idea/
-.env
-reports/
 *.pyc
 __pycache__/
+
+.env
+
+seed.txt
