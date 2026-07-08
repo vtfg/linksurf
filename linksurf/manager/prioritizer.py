@@ -25,6 +25,10 @@ class Prioritizer:
         root_domain = get_root_domain(url)
         root_data = await get_domain_stats(root_domain)
         total = int(root_data.get("total_crawled_urls", 0))
+
+        if total == 0:
+            return QUEUE_MAX_PRIORITY
+
         f3 = 1.0 / (1 + math.log1p(total))
 
         # Factor 4: per-subdomain avg response time (servers may differ)
