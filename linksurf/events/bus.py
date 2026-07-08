@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Callable, Any
 
 from linksurf.events import Event
+from linksurf.logger import Logger
 
 
 class EventBus:
-    _instance: EventBus | None = None
+    _instance: EventBus = None
 
     def __new__(cls) -> EventBus:
         if cls._instance is None:
@@ -19,8 +20,8 @@ class EventBus:
         self._listeners.setdefault(name, []).append(handler)
 
     def emit(self, event: Event) -> None:
-        for handler in self._listeners.get(event.name, []):
-            handler(event)
-
-        for handler in self._listeners.get("*", []):
-            handler(event)
+        for handler in self._listeners.get(event.name, []) + self._listeners.get("*", []):
+            try:
+                handler(event)
+            except Exception:
+                Logger().exception("listener.error", listener=str(handler))

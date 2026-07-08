@@ -117,9 +117,12 @@ class Linksurf:
 
         Logger().info("broker.loop")
 
-        self.broker.loop()
-
-        self.shutdown()
+        try:
+            self.broker.loop()
+        except Exception:
+            Logger().exception("application.crash")
+        finally:
+            self.shutdown()
 
     def shutdown(self) -> None:
         components = [self.frontier, self.downloader, self.parser, self.storage]
