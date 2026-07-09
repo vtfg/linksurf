@@ -6,7 +6,7 @@ class SchemeRule(Rule):
     def __init__(self, allowed: list[str]):
         self.allowed = allowed
 
-    def execute(self, payload: Payload) -> RuleResponse:
+    async def execute(self, payload: Payload) -> RuleResponse:
         if payload.url.scheme not in self.allowed:
             return RuleResponse(False, None)
 
@@ -49,7 +49,7 @@ class URLExtensionRule(Rule):
         else:
             self.blocked = {ext.lstrip(".").lower() for ext in blocked}
 
-    def execute(self, payload: Payload) -> RuleResponse:
+    async def execute(self, payload: Payload) -> RuleResponse:
         extension = payload.url.extension
 
         if extension is not None and extension in self.blocked:
@@ -63,7 +63,7 @@ class URLLimitsRule(Rule):
         self.max_length = max_length
         self.max_path_depth = max_path_depth
 
-    def execute(self, payload: Payload) -> RuleResponse:
+    async def execute(self, payload: Payload) -> RuleResponse:
         if len(payload.url.address) > self.max_length:
             return RuleResponse(False, None)
 
@@ -77,7 +77,7 @@ class BlockedDomainsRule(Rule):
     def __init__(self, blocked: list[str]):
         self.blocked = set(blocked)
 
-    def execute(self, payload: Payload) -> RuleResponse:
+    async def execute(self, payload: Payload) -> RuleResponse:
         if payload.url.domain in self.blocked:
             return RuleResponse(False, None)
 

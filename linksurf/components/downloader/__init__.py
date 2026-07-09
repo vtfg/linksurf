@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from linksurf.broker.base import Broker
@@ -33,17 +34,17 @@ class Downloader(Component):
             ContentLengthFilter(max_bytes=TEN_MEGABYTES_IN_BYTES),
         ]
 
-    def on_start(self, settings: Settings, services: Services):
-        super().on_start(settings, services)
+    async def on_start(self, settings: Settings, services: Services):
+        await super().on_start(settings, services)
 
         self.blob_storage = services.blob_storage
         self.cache = services.cache
         self.fetcher = services.fetcher
 
-        self.subscribe(self.TOPIC, self.download)
+        await self.subscribe(self.TOPIC, self.download)
 
-    def download(self, payload: Payload) -> Error | None:
-        error = self.throttle(payload)
+    async def download(self, payload: Payload) -> Error | None:
+        error = await self.throttle(payload)
 
         if error is not None:
             return error
@@ -51,7 +52,7 @@ class Downloader(Component):
         request = HTTPRequest(url=payload.url.address, follow_redirects=True)
 
         try:
-            response = self.fetcher.http(request)
+            response = await self.fetcher.http(request)
         except MaxRedirectsError as e:
             return Error("Too many redirects.", retriable=False, exception=e)
         except Exception as e:
@@ -74,14 +75,14 @@ class Downloader(Component):
         if final_url.domain != payload.url.domain:
             redirect_payload = Payload(url=final_url, redirects=payload.redirects)
 
-            self.publish("url.process", redirect_payload)
+            await self.publish("url.process", redirect_payload)
 
             return None
 
         payload.url = final_url
         payload.response = response.to_summary()
 
-        proceed, error = self.filter(payload)
+        proceed, error = await self.filter(payload)
 
         if error is not None:
             return error
@@ -93,7 +94,7 @@ class Downloader(Component):
         key = payload.url.hash
 
         try:
-            self.blob_storage.upload(response.body, key, content_type=mime_type)
+            await self.blob_storage.upload(response.body, key, content_type=mime_type)
         except Exception as e:
             return Error("Blob upload failed.", retriable=True, exception=e)
 
@@ -105,11 +106,11 @@ class Downloader(Component):
         payload.content = Content(key=key, type=type)
         payload.request = request.to_summary()
 
-        self.publish("url.parse", payload)
+        await self.publish("url.parse", payload)
 
         return None
 
-    def throttle(self, payload: Payload, delay: float = 1.0) -> Error | None:
+    async def throttle(self, payload: Payload, delay: float = 1.0) -> Error | None:
         """
            Enforces per-domain crawl delays. Uses the Crawl-delay from robots.txt when
            available, falling back to `delay` from parameters.
@@ -122,7 +123,7 @@ class Downloader(Component):
         delay = robots.get("delay") or delay
 
         try:
-            last_fetch = self.cache.get_domain_last_fetch(domain, port)
+            last_fetch = await self.cache.get_domain_last_fetch(domain, port)
         except Exception as e:
             return Error("Cache lookup failed.", retriable=True, exception=e)
 
@@ -132,10 +133,10 @@ class Downloader(Component):
             if elapsed < delay:
                 Logger().debug("component.debug", message=f"Sleeping for {delay - elapsed} seconds")
 
-                time.sleep(delay - elapsed)
+                await asyncio.sleep(delay - elapsed)
 
         try:
-            self.cache.save_domain_last_fetch(domain, port, time.monotonic())
+            await self.cache.save_domain_last_fetch(domain, port, time.monotonic())
         except Exception as e:
             return Error("Cache write failed.", retriable=True, exception=e)
 

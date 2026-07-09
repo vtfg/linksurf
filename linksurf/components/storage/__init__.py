@@ -26,29 +26,29 @@ class Storage(Component):
             # ContentSeenFilter(),
         ]
 
-    def on_start(self, settings: Settings, services: Services):
-        super().on_start(settings, services)
+    async def on_start(self, settings: Settings, services: Services):
+        await super().on_start(settings, services)
 
         self.database = services.database
         self.cache = services.cache
 
-        self.subscribe(self.TOPIC, self.store)
+        await self.subscribe(self.TOPIC, self.store)
 
-    def store(self, payload: Payload) -> Error | None:
+    async def store(self, payload: Payload) -> Error | None:
         if payload.content is None or payload.response is None:
             return Error("Payload has no content or response.", retriable=False)
 
         data = self._build_data(payload)
 
         try:
-            storage_id = self.database.save_url(data)
+            storage_id = await self.database.save_url(data)
         except Exception as e:
             return Error("Database write failed.", retriable=True, exception=e)
 
         payload.storage_id = storage_id
 
         try:
-            self.cache.update_domain_metrics(
+            await self.cache.update_domain_metrics(
                 payload.url.domain,
                 payload.url.port,
                 payload.response.elapsed_ms,
@@ -57,13 +57,13 @@ class Storage(Component):
         except Exception as e:
             return Error("Cache write failed.", retriable=True, exception=e)
 
-        self._mark_redirects_seen(payload)
+        await self._mark_redirects_seen(payload)
 
         # Storage is the final pipeline component.
 
         return None
 
-    def _mark_redirects_seen(self, payload: Payload) -> None:
+    async def _mark_redirects_seen(self, payload: Payload) -> None:
         """
         Registers every redirect hop's target and the final URL as seen.
 
@@ -74,7 +74,7 @@ class Storage(Component):
 
         for url in urls:
             try:
-                self.cache.mark_url_seen(url)
+                await self.cache.mark_url_seen(url)
             except Exception as e:
                 Logger().warning(
                     "component.warning",

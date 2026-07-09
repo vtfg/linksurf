@@ -14,15 +14,14 @@ class Services:
         self.cache = cache
         self.fetcher = fetcher
 
-    def connect(self, settings: Settings) -> None:
-        for value in vars(self).values():
-            if not isinstance(value, Service):
-                continue
+    async def connect(self, settings: Settings) -> None:
+        services = [self.database, self.blob_storage, self.cache, self.fetcher]
 
-            service_name = type(value).__name__
+        for service in services:
+            service_name = type(service).__name__
 
             try:
-                value.on_start(settings)
+                await service.on_start(settings)
             except Exception:
                 Logger().exception("service.error", service=service_name, error="Service startup failed.")
 
@@ -30,15 +29,14 @@ class Services:
 
             Logger().info("service.start", service=service_name)
 
-    def disconnect(self) -> None:
-        for value in vars(self).values():
-            if not isinstance(value, Service):
-                continue
+    async def disconnect(self) -> None:
+        services = [self.database, self.blob_storage, self.cache, self.fetcher]
 
-            service_name = type(value).__name__
+        for service in services:
+            service_name = type(service).__name__
 
             try:
-                value.on_stop()
+                await service.on_stop()
             except Exception:
                 Logger().exception("service.error", service=service_name, error="Service shutdown failed.")
 

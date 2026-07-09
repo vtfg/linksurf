@@ -131,7 +131,7 @@ class HTTPResponse:
     status_code: int
     headers: dict[str, str]
     body: bytes
-    encoding: str
+    encoding: str | None
     elapsed_ms: float
     redirects: list[Redirect]
     request: HTTPRequest

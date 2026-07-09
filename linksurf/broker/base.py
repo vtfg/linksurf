@@ -4,27 +4,26 @@ from linksurf.common.constants import MIN_QUEUE_PRIORITY
 
 
 class Broker:
-    def connect(self):
-        pass
+    async def connect(self):
+        raise NotImplementedError()
 
-    def disconnect(self):
-        pass
+    async def disconnect(self):
+        raise NotImplementedError()
 
-    def seed(self, topic: str, data: Any):
-        pass
+    async def seed(self, topic: str, data: Any):
+        raise NotImplementedError()
 
-    def subscribe(self, topic: str, handler: Callable[[Any], Any]):
-        pass
+    async def subscribe(self, topic: str, handler: Callable[[Any], Any], concurrency: int = 1):
+        raise NotImplementedError()
 
-    def publish(self, topic: str, data: Any, priority: int = MIN_QUEUE_PRIORITY):
-        pass
+    async def publish(self, topic: str, data: Any, priority: int = MIN_QUEUE_PRIORITY):
+        raise NotImplementedError()
 
-    def delayed_publish(self, topic: str, data: Any, delay_seconds: int, priority: int = MIN_QUEUE_PRIORITY):
-        pass
+    async def delayed_publish(self, topic: str, data: Any, delay_seconds: int, priority: int = MIN_QUEUE_PRIORITY):
+        raise NotImplementedError()
 
-    # Listens to topics and execute callbacks
-    def loop(self):
-        pass
+    async def loop(self):
+        raise NotImplementedError()
 
     def stop(self):
-        pass
+        raise NotImplementedError()

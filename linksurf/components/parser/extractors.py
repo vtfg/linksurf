@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Awaitable
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -13,7 +13,7 @@ class Extractor:
     NAME: str
 
     def extract(self, payload: Payload, contents: bytes) -> Any:
-        pass
+        raise NotImplementedError()
 
 
 @dataclass
@@ -39,7 +39,7 @@ class ExtractorRules:
         return True
 
 
-type ExtractorCallback = Callable[[Payload, Any], None]
+type ExtractorCallback = Callable[[Payload, Any], Awaitable[None]]
 
 
 @dataclass(frozen=True)

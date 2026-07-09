@@ -1,3 +1,4 @@
+import asyncio
 from urllib.robotparser import RobotFileParser
 
 from linksurf.common.models import HTTPRequest, MimeType
@@ -21,25 +22,25 @@ class DNSMiddleware(Middleware):
 
     cache: Cache
 
-    def on_start(self, settings, services: Services):
+    async def on_start(self, settings, services: Services):
         self.cache = services.cache
 
-    def execute(self, payload: Payload) -> MiddlewareResponse:
+    async def execute(self, payload: Payload) -> MiddlewareResponse:
         domain = payload.url.domain
         port = payload.url.port
 
         try:
-            cached = self.cache.get_domain_status(domain, port)
+            cached = await self.cache.get_domain_status(domain, port)
         except Exception as e:
             return MiddlewareResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
         if cached:
             available, ip = cached
         else:
-            available, ip = check_domain_availability(domain, port)
+            available, ip = await asyncio.to_thread(check_domain_availability, domain, port)
 
             try:
-                self.cache.save_domain_status(domain, port, available, ip)
+                await self.cache.save_domain_status(domain, port, available, ip)
             except Exception as e:
                 return MiddlewareResponse(None, Error("Cache write failed.", retriable=True, exception=e))
 
@@ -57,7 +58,7 @@ class CountryMiddleware(Middleware):
     Computes the website's guessed country.
     """
 
-    def execute(self, payload: Payload) -> MiddlewareResponse:
+    async def execute(self, payload: Payload) -> MiddlewareResponse:
         raise NotImplementedError()
 
 
@@ -77,30 +78,30 @@ class RobotsExclusionMiddleware(Middleware):
     cache: Cache
     fetcher: Fetcher
 
-    def on_start(self, settings: Settings, services: Services):
+    async def on_start(self, settings: Settings, services: Services):
         self.identifier = settings.identifier
 
         self.cache = services.cache
         self.fetcher = services.fetcher
 
-    def execute(self, payload: Payload) -> MiddlewareResponse:
+    async def execute(self, payload: Payload) -> MiddlewareResponse:
         try:
-            record = self.cache.get_domain_robots_txt(payload.url.domain, payload.url.port)
+            record = await self.cache.get_domain_robots_txt(payload.url.domain, payload.url.port)
         except Exception as e:
             return MiddlewareResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
         cached = record is not None
 
         if record is None:
-            record, error = self._fetch(payload)
+            record, error = await self._fetch(payload)
 
             if error is not None:
                 return MiddlewareResponse(None, error)
 
             try:
-                self.cache.save_domain_robots_txt(payload.url.domain, payload.url.port, record.status_code,
-                                                  record.content_type,
-                                                  record.text)
+                await self.cache.save_domain_robots_txt(payload.url.domain, payload.url.port, record.status_code,
+                                                        record.content_type,
+                                                        record.text)
             except Exception as e:
                 return MiddlewareResponse(None, Error("Cache write failed.", retriable=True, exception=e))
 
@@ -115,13 +116,13 @@ class RobotsExclusionMiddleware(Middleware):
 
         return MiddlewareResponse(payload, None)
 
-    def _fetch(self, payload: Payload) -> tuple[RobotsRecord | None, Error | None]:
+    async def _fetch(self, payload: Payload) -> tuple[RobotsRecord | None, Error | None]:
         robots_url = f"{payload.url.origin}/robots.txt"
 
         request = HTTPRequest(url=robots_url, follow_redirects=True)
 
         try:
-            response = self.fetcher.http(request)
+            response = await self.fetcher.http(request)
         except MaxRedirectsError:
             return RobotsRecord(status_code=REDIRECT_LOOP_STATUS_CODE, content_type=None, text=""), None
         except Exception as e:

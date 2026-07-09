@@ -1,7 +1,6 @@
 from urllib.parse import urlsplit
 
-from requests import Session
-from requests.exceptions import TooManyRedirects
+from httpx import AsyncClient, TooManyRedirects
 
 from linksurf.common.constants import DEFAULT_USER_AGENT, MAX_REDIRECT_DEPTH
 from linksurf.common.models import HTTPRequest, HTTPResponse, Redirect
@@ -17,42 +16,45 @@ class MaxRedirectsError(Exception):
 class Fetcher(Service):
     NAME = "fetcher"
 
-    def http(self, request: HTTPRequest) -> HTTPResponse:
-        pass
+    async def http(self, request: HTTPRequest) -> HTTPResponse:
+        raise NotImplementedError()
 
 
-class RequestsFetcher(Fetcher):
+class HTTPXFetcher(Fetcher):
     def __init__(self):
         self.user_agent = DEFAULT_USER_AGENT
         self.proxy: str | None = None
-        self._session: Session | None = None
+        self._client: AsyncClient | None = None
 
-    def on_start(self, settings: Settings):
+    async def on_start(self, settings: Settings):
         self.user_agent = settings.user_agent
         self.proxy = settings.proxy
 
-        self._session = Session()
-        self._session.max_redirects = MAX_REDIRECT_DEPTH
+        client = AsyncClient(proxy=self.proxy)
+        client.max_redirects = MAX_REDIRECT_DEPTH
 
-    def on_stop(self):
-        if self._session is not None:
-            self._session.close()
-            self._session = None
+        Logger().debug("service.debug", service="Fetcher", message="Using proxy", proxy=self.proxy)
 
-    def http(self, request: HTTPRequest) -> HTTPResponse:
+        self._client = client
+
+    async def on_stop(self):
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    async def http(self, request: HTTPRequest) -> HTTPResponse:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
         scheme = urlsplit(request.url).scheme
 
         if scheme not in ["http", "https"]:
             raise ValueError(f"Unsupported scheme: {scheme}")
 
-        proxy = request.proxy or self.proxy
-        proxies = None
+        proxy = self.proxy
 
         if proxy:
             request.proxy = proxy
-            proxies = {"http": proxy, "https": proxy}
-
-            Logger().debug("service.debug", service="Fetcher", message="Using proxy", proxy=proxy)
 
         request.user_agent = self.user_agent
 
@@ -61,25 +63,24 @@ class RequestsFetcher(Fetcher):
         }
 
         try:
-            response = self._session.request(
+            response = await self._client.request(
                 method=request.method,
                 url=request.url,
                 headers=headers,
-                proxies=proxies,
                 timeout=request.timeout,
-                allow_redirects=request.follow_redirects,
+                follow_redirects=request.follow_redirects,
             )
         except TooManyRedirects as e:
             raise MaxRedirectsError(str(e)) from e
 
-        self._session.cookies.clear()
+        self._client.cookies.clear()
 
         elapsed_ms = response.elapsed.total_seconds() * 1000
 
         return HTTPResponse(
-            url=response.url,
+            url=str(response.url),
             status_code=response.status_code,
-            headers=dict(response.headers),
+            headers=response.headers,
             body=response.content,
             encoding=response.encoding,
             elapsed_ms=elapsed_ms,

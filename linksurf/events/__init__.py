@@ -50,7 +50,6 @@ class ComponentErrorEvent:
 
 @dataclass
 class ComponentPublishEvent:
-    correlation_id: str
     component: str
     topic: str
     urls: list[tuple[str, int]]  # (address, priority)

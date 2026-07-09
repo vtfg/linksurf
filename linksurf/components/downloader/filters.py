@@ -8,7 +8,7 @@ class ContentTypeFilter(Filter):
     def __init__(self, allowed: list[MimeType]):
         self.allowed = allowed
 
-    def execute(self, payload: Payload) -> FilterResponse:
+    async def execute(self, payload: Payload) -> FilterResponse:
         type = payload.get_metadata("content_type")
 
         if type not in self.allowed:
@@ -24,7 +24,7 @@ class ContentLengthFilter(Filter):
 
         self.max_bytes = max_bytes
 
-    def execute(self, payload: Payload) -> FilterResponse:
+    async def execute(self, payload: Payload) -> FilterResponse:
         content_length = payload.get_metadata("content_length") or {}
 
         value = content_length.get("value")

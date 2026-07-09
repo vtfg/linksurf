@@ -41,15 +41,15 @@ class Frontier(Component):
         ]
         self.prioritizer = MultiFactorPrioritizer()
 
-    def on_start(self, settings: Settings, services: Services) -> None:
-        super().on_start(settings, services)
+    async def on_start(self, settings: Settings, services: Services) -> None:
+        await super().on_start(settings, services)
 
-        self.subscribe(self.TOPIC, self.process)
+        await self.subscribe(self.TOPIC, self.process)
 
-    def process(self, payload: Payload) -> Error | None:
+    async def process(self, payload: Payload) -> Error | None:
         # TODO: Handle politeness with back-queues and expose an API or Service to the Downloader
 
-        proceed, error = self.rule(payload)
+        proceed, error = await self.rule(payload)
 
         if error is not None:
             return error
@@ -57,7 +57,7 @@ class Frontier(Component):
         if not proceed:
             return None
 
-        seen, error = self.deduplicate(payload)
+        seen, error = await self.deduplicate(payload)
 
         if error is not None:
             return error
@@ -65,11 +65,11 @@ class Frontier(Component):
         if seen:
             return None
 
-        proceed, error = self.filter(payload)
+        proceed, error = await self.filter(payload)
 
         if error is not None:
             if error.retriable:
-                unregister_error = self.deduplicator.unregister(payload)
+                unregister_error = await self.deduplicator.unregister(payload)
 
                 if unregister_error is not None:
                     Logger().warning(
@@ -85,11 +85,11 @@ class Frontier(Component):
         if not proceed:
             return None
 
-        priority, error = self.prioritize(payload)
+        priority, error = await self.prioritize(payload)
 
         if error is not None:
             return error
 
-        self.publish("url.download", payload, priority)
+        await self.publish("url.download", payload, priority)
 
         return None
