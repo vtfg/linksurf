@@ -43,7 +43,7 @@ class Frontier(Component):
     async def on_start(self, settings: Settings, services: Services) -> None:
         await super().on_start(settings, services)
 
-        await self.subscribe(self.TOPIC, self.process)
+        await self.subscribe(self.TOPIC, self.process, concurrency=100)
 
     async def process(self, payload: Payload) -> Error | None:
         # TODO: Handle politeness with back-queues and expose an API or Service to the Downloader

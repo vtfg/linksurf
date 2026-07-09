@@ -48,8 +48,13 @@ class RabbitMQBroker(Broker):
         if concurrency < 1:
             raise ValueError("Concurrency must be >= 1.")
 
-        queue = await self.channel.declare_queue(name=topic, durable=True,
-                                                 arguments={"x-max-priority": MAX_QUEUE_PRIORITY})
+        # dedicated channel per subscription so prefetch can be tuned independently per topic
+        channel = await self.connection.channel()
+        await channel.set_qos(prefetch_count=concurrency)
+
+        queue = await channel.declare_queue(
+            name=topic, durable=True, arguments={"x-max-priority": MAX_QUEUE_PRIORITY}
+        )
         await queue.bind(exchange=EXCHANGE, routing_key=topic)
 
         async def callback(message: aio_pika.abc.AbstractIncomingMessage):

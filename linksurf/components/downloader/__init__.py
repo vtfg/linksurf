@@ -41,7 +41,8 @@ class Downloader(Component):
         self.cache = services.cache
         self.fetcher = services.fetcher
 
-        await self.subscribe(self.TOPIC, self.download)
+        # TODO: raise to 50 once back-queues gets implemented
+        await self.subscribe(self.TOPIC, self.download, concurrency=1)
 
     async def download(self, payload: Payload) -> Error | None:
         error = await self.throttle(payload)

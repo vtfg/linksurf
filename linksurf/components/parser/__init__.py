@@ -43,7 +43,7 @@ class Parser(Component):
 
         self.blob_storage = services.blob_storage
 
-        await self.subscribe(self.TOPIC, self.parse)
+        await self.subscribe(self.TOPIC, self.parse, concurrency=10)
 
     async def parse(self, payload: Payload) -> Error | None:
         if payload.content is None:

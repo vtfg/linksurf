@@ -448,7 +448,7 @@ class Component:
                                      topic=topic, duration_ms=duration_ms,
                                      retrying=data.retrying, retries=data.retries))
 
-        await self.broker.subscribe(topic, handler)
+        await self.broker.subscribe(topic, handler, concurrency=concurrency)
 
     async def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
         from linksurf.events import ComponentPublishEvent
