@@ -182,6 +182,14 @@ class Component:
         if self.deduplicator is None:
             raise Exception("Deduplicator not defined.")
 
+        if payload.deduplicated:
+            # this payload was already deduplicated once; re-checking would only block its own retry
+
+            Logger().debug("component.debug", component=self._component_name,
+                           url=payload.url.address, message="Bypassing deduplication.")
+
+            return False, None
+
         from linksurf.events import (
             DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
         )
@@ -209,6 +217,8 @@ class Component:
                 DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                         deduplicator=deduplicator_name, seen=True))
 
+            payload.deduplicated = True
+
             return True, None
 
         error = await self.deduplicator.register(payload)
@@ -220,6 +230,8 @@ class Component:
                                        retriable=error.retriable, exception=error.exception))
 
             return False, error
+
+        payload.deduplicated = True
 
         EventBus().emit(
             DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,

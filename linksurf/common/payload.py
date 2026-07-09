@@ -14,6 +14,7 @@ class Payload:
             priority: int = 0,
             retrying: bool = False,
             retries: int = 0,
+            deduplicated: bool = False,
             content: Content | None = None,
             redirects: list[Redirect] | None = None,
             request: HTTPRequestSummary | None = None,
@@ -29,6 +30,7 @@ class Payload:
         self.priority = priority
         self.retrying = retrying
         self.retries = retries
+        self.deduplicated = deduplicated
         self.content = content
         self.redirects: list[Redirect] = redirects or []
         self.request = request
@@ -53,6 +55,7 @@ class Payload:
             "priority": self.priority,
             "retrying": self.retrying,
             "retries": self.retries,
+            "deduplicated": self.deduplicated,
             "content": asdict(self.content) if self.content else None,
             "redirects": [asdict(r) for r in self.redirects],
             "request": asdict(self.request) if self.request else None,
@@ -73,6 +76,7 @@ class Payload:
             priority=data.get("priority", 0),
             retrying=data.get("retrying", False),
             retries=data.get("retries", 0),
+            deduplicated=data.get("deduplicated", False),
             content=Content(**content) if content else None,
             redirects=[Redirect(**r) for r in data.get("redirects", [])],
             request=HTTPRequestSummary(**request) if request else None,
