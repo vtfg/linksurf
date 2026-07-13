@@ -1,16 +1,13 @@
-from dataclasses import asdict
-from datetime import datetime, timezone
-
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL
-from linksurf.common.payload import Payload
+from linksurf.common.payload import Payload, Status
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.cache import Cache
-from linksurf.services.database import Database
+from linksurf.services.database import Database, URLModel
 
 
 class Storage(Component):
@@ -82,16 +79,19 @@ class Storage(Component):
                     exception=str(e),
                 )
 
-    def _build_data(self, payload: Payload) -> dict:
-        return {
-            "address": payload.url.address,
-            "hash": payload.url.hash,
-            "domain": payload.url.domain,
-            "correlation_id": payload.correlation_id,
-            "request": asdict(payload.request) if payload.request else None,
-            "response": asdict(payload.response) if payload.response else None,
-            "content": asdict(payload.content) if payload.content else None,
-            "redirects": [asdict(r) for r in payload.redirects],
-            "metadata": {k: v for k, v in payload.metadata.items() if k != "links"},
-            "last_crawled_at": datetime.now(timezone.utc),
-        }
+    def _build_data(self, payload: Payload) -> URLModel:
+        return URLModel(
+            address=payload.url.address,
+            hash=payload.url.hash,
+            domain=payload.url.domain,
+            priority=payload.priority,
+            status=Status.FINISHED,
+            correlation_id=payload.correlation_id,
+            request=payload.request,
+            response=payload.response,
+            content=payload.content,
+            redirects=payload.redirects,
+            metadata={k: v for k, v in payload.metadata.items() if k != "links"},
+            discovered_at=payload.discovered_at,
+            fetched_at=payload.fetched_at,
+        )

@@ -80,6 +80,8 @@ class Frontier(Component):
         if error is not None:
             return error
 
+        payload.priority = priority
+
         await self.back_queue.put(payload)
 
         return None

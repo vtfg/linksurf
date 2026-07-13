@@ -1,4 +1,5 @@
 from asyncio import Lock
+from datetime import datetime, timezone
 
 from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
@@ -51,7 +52,7 @@ class Downloader(Component):
             request = HTTPRequest(url=payload.url.address, follow_redirects=True)
 
             response: HTTPResponse | None = None
-            
+
             try:
                 response = await self.fetcher.http(request)
             except MaxRedirectsError as e:
@@ -84,6 +85,7 @@ class Downloader(Component):
 
         payload.url = final_url
         payload.response = response.to_summary()
+        payload.fetched_at = datetime.now(timezone.utc)
 
         proceed, error = await self.filter(payload)
 
