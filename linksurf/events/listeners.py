@@ -1,4 +1,5 @@
 import logging
+import traceback
 from dataclasses import asdict
 from typing import Any
 
@@ -75,6 +76,10 @@ class BetterStackListener(Listener):
         name = data.pop("name")
         data.pop("exception", None)
 
+        if exception is not None:
+            data["exception"] = "".join(
+                traceback.format_exception(type(exception), exception, exception.__traceback__))
+
         level = logging.ERROR if name.endswith(".error") else logging.INFO
 
-        self._logger.log(level, name, extra=data, exc_info=exception)
+        self._logger.log(level, name, extra=data)
