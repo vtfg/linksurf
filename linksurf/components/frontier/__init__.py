@@ -1,3 +1,4 @@
+from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
@@ -20,8 +21,12 @@ from linksurf.services import Services
 class Frontier(Component):
     TOPIC = "url.process"
 
-    def __init__(self, broker: Broker) -> None:
+    back_queue: BackQueue
+
+    def __init__(self, broker: Broker, back_queue: BackQueue):
         super().__init__(broker)
+
+        self.back_queue = back_queue
 
         self.rules = [
             SchemeRule(allowed=["http", "https"]),
@@ -46,8 +51,6 @@ class Frontier(Component):
         await self.subscribe(self.TOPIC, self.process, concurrency=100)
 
     async def process(self, payload: Payload) -> Error | None:
-        # TODO: Handle politeness with back-queues and expose an API or Service to the Downloader
-
         proceed, error = await self.rule(payload)
 
         if error is not None:
@@ -77,6 +80,6 @@ class Frontier(Component):
         if error is not None:
             return error
 
-        await self.publish("url.download", payload, priority)
+        await self.back_queue.put(payload)
 
         return None

@@ -1,6 +1,7 @@
+import asyncio
 import time
 from dataclasses import dataclass
-from typing import Callable, NamedTuple, Awaitable
+from typing import Any, Callable, NamedTuple, Awaitable
 
 from linksurf.broker.base import Broker
 from linksurf.common.constants import MAX_RETRIES, MIN_QUEUE_PRIORITY
@@ -103,6 +104,9 @@ class Component:
         self.prioritizer: Prioritizer | None = None
 
         self._component_name = type(self).__name__
+        self._looping = False
+        self._loop_tasks: list[asyncio.Task] = []
+        self._loop_in_flight: set[asyncio.Task] = set()
 
     async def on_start(self, settings: Settings, services: Services):
         for rule in self.rules:
@@ -121,6 +125,17 @@ class Component:
             await self.prioritizer.on_start(settings, services)
 
     async def on_stop(self):
+        self._looping = False
+
+        if self._loop_in_flight:
+            Logger().warning("component.draining", component=self._component_name,
+                             pending=len(self._loop_in_flight))
+
+            await asyncio.gather(*self._loop_in_flight, return_exceptions=True)
+
+        self._loop_tasks = []
+        self._loop_in_flight = set()
+
         for rule in self.rules:
             await rule.on_stop()
 
@@ -449,6 +464,68 @@ class Component:
                                      retrying=data.retrying, retries=data.retries))
 
         await self.broker.subscribe(topic, handler, concurrency=concurrency)
+
+    async def loop(self, pull: Callable[[], Awaitable[tuple[Payload, Any]]],
+                   callback: Callable[[Payload, ...], Awaitable[Error | None]],
+                   concurrency: int = 1) -> None:
+        if concurrency < 1:
+            raise ValueError("Concurrency must be >= 1.")
+
+        from linksurf.events import (
+            ComponentLoopEvent, ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent
+        )
+
+        component_name = type(self).__name__
+        function_name = callback.__name__
+
+        EventBus().emit(ComponentLoopEvent(component=component_name, function=function_name))
+
+        self._looping = True
+
+        async def handler():
+            while self._looping:
+                payload, *extra = await pull()
+
+                correlation_id = payload.correlation_id
+                url = payload.url.address
+                start_time = time.perf_counter()
+
+                if payload.retrying:
+                    payload.retries += 1
+
+                task = asyncio.current_task()
+                self._loop_in_flight.add(task)
+
+                EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                    function=function_name, retrying=payload.retrying,
+                                                    retries=payload.retries))
+
+                try:
+                    error = await callback(payload, *extra)
+                except Exception as e:
+                    error = Error("Uncaught error.", exception=e, retriable=False, unexpected=True)
+
+                end_time = time.perf_counter()
+                duration_ms = (end_time - start_time) * 1000
+
+                if error is not None:
+                    EventBus().emit(
+                        ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                            error=error.message,
+                                            retriable=error.retriable,
+                                            retrying=payload.retrying,
+                                            retries=payload.retries,
+                                            unexpected=error.unexpected,
+                                            exception=error.exception))
+                else:
+                    EventBus().emit(
+                        ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                             function=function_name, duration_ms=duration_ms,
+                                             retrying=payload.retrying, retries=payload.retries))
+
+                self._loop_in_flight.discard(task)
+
+        self._loop_tasks = [asyncio.create_task(handler()) for _ in range(concurrency)]
 
     async def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
         from linksurf.events import ComponentPublishEvent

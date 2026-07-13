@@ -1,16 +1,15 @@
-import asyncio
-import time
+from asyncio import Lock
 
+from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
 from linksurf.common.constants import MAX_REDIRECT_DEPTH, TEN_MEGABYTES_IN_BYTES
-from linksurf.common.models import HTTPRequest, MimeType, Redirect, URL
+from linksurf.common.models import HTTPRequest, MimeType, Redirect, URL, HTTPResponse
 from linksurf.common.payload import Content, Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
 from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
 from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware
-from linksurf.logger import Logger
 from linksurf.services import Services, Fetcher, BlobStorage, Cache
 from linksurf.services.fetcher import MaxRedirectsError
 
@@ -18,12 +17,16 @@ from linksurf.services.fetcher import MaxRedirectsError
 class Downloader(Component):
     TOPIC = "url.download"
 
+    back_queue: BackQueue
+
     blob_storage: BlobStorage
     cache: Cache
     fetcher: Fetcher
 
-    def __init__(self, broker: Broker):
+    def __init__(self, broker: Broker, back_queue: BackQueue):
         super().__init__(broker)
+
+        self.back_queue = back_queue
 
         self.middlewares = [
             ContentTypeMiddleware(),
@@ -41,23 +44,22 @@ class Downloader(Component):
         self.cache = services.cache
         self.fetcher = services.fetcher
 
-        # TODO: raise to 50 once back-queues gets implemented
-        await self.subscribe(self.TOPIC, self.download, concurrency=1)
+        await self.loop(self.back_queue.next, self.download, concurrency=20)
 
-    async def download(self, payload: Payload) -> Error | None:
-        error = await self.throttle(payload)
+    async def download(self, payload: Payload, lock: Lock) -> Error | None:
+        async with lock:
+            request = HTTPRequest(url=payload.url.address, follow_redirects=True)
 
-        if error is not None:
-            return error
-
-        request = HTTPRequest(url=payload.url.address, follow_redirects=True)
-
-        try:
-            response = await self.fetcher.http(request)
-        except MaxRedirectsError as e:
-            return Error("Too many redirects.", retriable=False, exception=e)
-        except Exception as e:
-            return Error("HTTP fetch failed.", retriable=True, exception=e)
+            response: HTTPResponse | None = None
+            
+            try:
+                response = await self.fetcher.http(request)
+            except MaxRedirectsError as e:
+                return Error("Too many redirects.", retriable=False, exception=e)
+            except Exception as e:
+                return Error("HTTP fetch failed.", retriable=True, exception=e)
+            finally:
+                await self.back_queue.report(payload, response)
 
         if response is None:
             return Error("HTTP fetch returned empty response.", retriable=True)
@@ -108,38 +110,6 @@ class Downloader(Component):
         payload.request = request.to_summary()
 
         await self.publish("url.parse", payload)
-
-        return None
-
-    async def throttle(self, payload: Payload, delay: float = 1.0) -> Error | None:
-        """
-           Enforces per-domain crawl delays. Uses the Crawl-delay from robots.txt when
-           available, falling back to `delay` from parameters.
-           """
-
-        domain = payload.url.domain
-        port = payload.url.port
-
-        robots = payload.get_metadata("robots") or {}
-        delay = robots.get("delay") or delay
-
-        try:
-            last_fetch = await self.cache.get_domain_last_fetch(domain, port)
-        except Exception as e:
-            return Error("Cache lookup failed.", retriable=True, exception=e)
-
-        if last_fetch is not None:
-            elapsed = time.monotonic() - last_fetch
-
-            if elapsed < delay:
-                Logger().debug("component.debug", message=f"Sleeping for {delay - elapsed} seconds")
-
-                await asyncio.sleep(delay - elapsed)
-
-        try:
-            await self.cache.save_domain_last_fetch(domain, port, time.monotonic())
-        except Exception as e:
-            return Error("Cache write failed.", retriable=True, exception=e)
 
         return None
 

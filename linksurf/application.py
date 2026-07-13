@@ -6,6 +6,7 @@ import signal
 from asyncio import AbstractEventLoop
 from typing import Self
 
+from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL
 from linksurf.common.payload import Payload
@@ -61,9 +62,10 @@ class Linksurf:
         self.settings = settings
         self.services = services
         self.broker = broker
+        self.back_queue = BackQueue()
 
-        self.frontier = Frontier(broker)
-        self.downloader = Downloader(broker)
+        self.frontier = Frontier(broker, self.back_queue)
+        self.downloader = Downloader(broker, self.back_queue)
         self.parser = Parser(broker)
         self.storage = Storage(broker)
 
@@ -81,6 +83,18 @@ class Linksurf:
                 EventBus().on(name, listener.handle)
 
         Logger().info("application.start")
+
+        def on_signal(sig, loop: AbstractEventLoop):
+            Logger().info("application.shutdown", message="Press Ctrl+C to exit immediately.")
+
+            self.broker.stop()
+
+            loop.remove_signal_handler(sig)
+
+        loop = asyncio.get_event_loop()
+
+        loop.add_signal_handler(signal.SIGINT, functools.partial(on_signal, signal.SIGINT, loop))
+        loop.add_signal_handler(signal.SIGTERM, functools.partial(on_signal, signal.SIGTERM, loop))
 
         try:
             await self.services.connect(self.settings)
@@ -100,6 +114,8 @@ class Linksurf:
 
         Logger().info("broker.connect")
 
+        await self.back_queue.on_start(self.services)
+
         components = [self.frontier, self.downloader, self.parser, self.storage]
 
         for component in components:
@@ -109,18 +125,6 @@ class Linksurf:
 
         for url in seed.urls:
             await self.broker.seed(Frontier.TOPIC, Payload(url=url))
-
-        def on_signal(sig, loop: AbstractEventLoop):
-            Logger().info("application.shutdown", message="Press Ctrl+C to exit immediately.")
-
-            self.broker.stop()
-
-            loop.remove_signal_handler(sig)
-
-        loop = asyncio.get_event_loop()
-
-        loop.add_signal_handler(signal.SIGINT, functools.partial(on_signal, signal.SIGINT, loop))
-        loop.add_signal_handler(signal.SIGTERM, functools.partial(on_signal, signal.SIGTERM, loop))
 
         Logger().info("broker.loop")
 
@@ -143,6 +147,8 @@ class Linksurf:
             Logger().exception("broker.error", error="Broker disconnection failed.")
         else:
             Logger().info("broker.disconnect")
+
+        await self.back_queue.on_stop()
 
         await self.services.disconnect()
 
