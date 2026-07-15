@@ -105,6 +105,8 @@ class RabbitMQBroker(Broker):
                 "x-dead-letter-routing-key": topic,
             },
         )
+        
+        await queue.bind(exchange=EXCHANGE, routing_key=delay_queue)
 
         exchange = await self.channel.get_exchange(EXCHANGE)
 
