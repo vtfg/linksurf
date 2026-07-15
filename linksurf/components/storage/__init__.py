@@ -35,7 +35,7 @@ class Storage(Component):
         if payload.content is None or payload.response is None:
             return Error("Payload has no content or response.", retriable=False)
 
-        data = self._build_data(payload)
+        data = URLModel.from_payload(payload, status=Status.FINISHED)
 
         try:
             storage_id = await self.database.save_url(data)
@@ -78,20 +78,3 @@ class Storage(Component):
                     message=f"Failed to mark redirect target as seen: {url.address}",
                     exception=str(e),
                 )
-
-    def _build_data(self, payload: Payload) -> URLModel:
-        return URLModel(
-            address=payload.url.address,
-            hash=payload.url.hash,
-            domain=payload.url.domain,
-            priority=payload.priority,
-            status=Status.FINISHED,
-            correlation_id=payload.correlation_id,
-            request=payload.request,
-            response=payload.response,
-            content=payload.content,
-            redirects=payload.redirects,
-            metadata={k: v for k, v in payload.metadata.items() if k != "links"},
-            discovered_at=payload.discovered_at,
-            fetched_at=payload.fetched_at,
-        )

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from typing import Any
@@ -6,7 +8,7 @@ from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
 from linksurf.common.models import Redirect, Content, HTTPRequestSummary, HTTPResponseSummary
-from linksurf.common.payload import Status
+from linksurf.common.payload import Status, Payload
 from linksurf.common.settings import Settings
 from linksurf.services.base import Service
 
@@ -26,6 +28,24 @@ class URLModel:
     metadata: dict[str, Any] = field(default_factory=dict)
     discovered_at: datetime = datetime.now(timezone.utc)
     fetched_at: datetime | None = None
+
+    @classmethod
+    def from_payload(cls, payload: Payload, status: Status = Status.PENDING) -> URLModel:
+        return cls(
+            address=payload.url.address,
+            hash=payload.url.hash,
+            domain=payload.url.domain,
+            priority=payload.priority,
+            status=status,
+            correlation_id=payload.correlation_id,
+            request=payload.request,
+            response=payload.response,
+            content=payload.content,
+            redirects=payload.redirects,
+            metadata={k: v for k, v in payload.metadata.items() if k != "links"},
+            discovered_at=payload.discovered_at,
+            fetched_at=payload.fetched_at,
+        )
 
 
 class Database(Service):
@@ -61,7 +81,7 @@ class MongoDatabase(Database):
             raise RuntimeError("Service not started.")
 
         result = await self._database["urls"].find_one_and_update(
-            {"hash": data.hash},
+            {"correlation_id": data.correlation_id},
             {"$set": asdict(data)},
             {"_id": True},
             upsert=True,
