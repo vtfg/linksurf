@@ -1,6 +1,6 @@
 from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
-from linksurf.common.payload import Payload
+from linksurf.common.payload import Payload, Status
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
@@ -15,18 +15,17 @@ from linksurf.components.frontier.rules import (
     BlockedDomainsRule,
     BLOCKED_EXTENSIONS,
 )
-from linksurf.services import Services
+from linksurf.services import Services, Database
+from linksurf.services.database import URLModel
 
 
 class Frontier(Component):
     TOPIC = "url.process"
 
-    back_queue: BackQueue
+    database: Database
 
     def __init__(self, broker: Broker, back_queue: BackQueue):
         super().__init__(broker)
-
-        self.back_queue = back_queue
 
         self.rules = [
             SchemeRule(allowed=["http", "https"]),
@@ -47,6 +46,8 @@ class Frontier(Component):
 
     async def on_start(self, settings: Settings, services: Services) -> None:
         await super().on_start(settings, services)
+
+        self.database = services.database
 
         await self.subscribe(self.TOPIC, self.process, concurrency=100)
 
@@ -82,6 +83,11 @@ class Frontier(Component):
 
         payload.priority = priority
 
-        await self.back_queue.put(payload)
+        try:
+            data = URLModel.from_payload(payload, status=Status.PENDING)
+
+            await self.database.save_url(data)
+        except Exception as e:
+            return Error("Database write failed.", retriable=True, exception=e)
 
         return None

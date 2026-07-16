@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from typing import Tuple
 
@@ -16,8 +17,7 @@ _DOMAIN_ROBOTS_SUFFIX = ":robots"
 _DOMAIN_STATUS_TTL = ONE_DAY_IN_SECONDS
 _URL_SEEN_CACHE_KEY = "linksurf:seen"
 _ROBOTS_CACHE_TTL = ONE_DAY_IN_SECONDS
-_LAST_FETCH_KEY_PREFIX = "linksurf:fetch:"
-_LAST_FETCH_TTL = ONE_DAY_IN_SECONDS
+_RELEASE_TIME_KEY_PREFIX = "linksurf:release:"
 
 
 @dataclass
@@ -59,10 +59,10 @@ class Cache(Service):
     async def is_url_seen(self, url: URL) -> bool:
         raise NotImplementedError()
 
-    async def save_domain_last_fetch(self, domain: str, port: int, timestamp: float) -> None:
+    async def save_domain_release_time(self, domain: str, port: int, time: float) -> None:
         raise NotImplementedError()
 
-    async def get_domain_last_fetch(self, domain: str, port: int) -> float | None:
+    async def get_domain_release_time(self, domain: str, port: int) -> float | None:
         raise NotImplementedError()
 
     async def get_domain_metrics(self, domain: str, port: int) -> DomainMetrics | None:
@@ -163,19 +163,19 @@ class RedisCache(Cache):
 
         return await self._client.sismember(_URL_SEEN_CACHE_KEY, url.hash) == 1
 
-    async def save_domain_last_fetch(self, domain: str, port: int, timestamp: float) -> None:
+    async def save_domain_release_time(self, domain: str, port: int, time: float) -> None:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
-        key = f"{_LAST_FETCH_KEY_PREFIX}{domain}@{port}"
+        key = f"{_RELEASE_TIME_KEY_PREFIX}{domain}@{port}"
 
-        await self._client.set(key, timestamp, ex=_LAST_FETCH_TTL)
+        await self._client.set(key, time, ex=math.ceil(time))
 
-    async def get_domain_last_fetch(self, domain: str, port: int) -> float | None:
+    async def get_domain_release_time(self, domain: str, port: int) -> float | None:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
-        key = f"{_LAST_FETCH_KEY_PREFIX}{domain}@{port}"
+        key = f"{_RELEASE_TIME_KEY_PREFIX}{domain}@{port}"
 
         value = await self._client.get(key)
 
