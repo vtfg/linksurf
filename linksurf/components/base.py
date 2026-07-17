@@ -484,7 +484,12 @@ class Component:
 
         async def handler():
             while self._looping:
-                payload, *extra = await pull()
+                try:
+                    payload, *extra = await pull()
+                except Exception:
+                    Logger().exception("component.pull_error", component=component_name, function=function_name)
+
+                    continue
 
                 correlation_id = payload.correlation_id
                 url = payload.url.address
