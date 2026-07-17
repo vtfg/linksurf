@@ -97,22 +97,25 @@ class BackQueue:
         """
 
         while True:
-            for domain, queue in self.queues.items():
-                now = time.time()
+            # scanning and consuming must be atomic to prevent TOCTOU window errors
+            # ^ mostly KeyError from trying to read from release_time a few milliseconds after the domain has been cleaned up
+            async with self.lock:
+                for domain, queue in self.queues.items():
+                    now = time.time()
 
-                size = queue.qsize()
-                release_time = self.release_times[domain]
-                lock = self.locks[domain]
+                    size = queue.qsize()
+                    release_time = self.release_times[domain]
+                    lock = self.locks[domain]
 
-                if size >= 1 and now >= release_time and not lock.locked():
-                    # increase immediately in case the caller task fails unexpectedly and doesn't send a report
-                    self.release_times[domain] = now + DEFAULT_DOMAIN_DELAY
+                    if size >= 1 and now >= release_time and not lock.locked():
+                        # increase immediately in case the caller task fails unexpectedly and doesn't send a report
+                        self.release_times[domain] = now + DEFAULT_DOMAIN_DELAY
 
-                    payload = await queue.get()
+                        payload = await queue.get()
 
-                    return payload, lock
+                        return payload, lock
 
-            Logger().debug("back_queue.debug", message="No available domains.")
+                Logger().debug("back_queue.debug", message="No available domains.")
 
             await sleep(1)
 
@@ -153,6 +156,10 @@ class BackQueue:
             asyncio.create_task(self._cleanup_domain(domain))
 
     async def _cleanup_domain(self, domain: str) -> None:
+        """
+        Deletes all domain related elements (queue, release time and lock) from in-memory properties and replaces with a new one.
+        """
+
         lock = self.locks.get(domain)
 
         if lock is None:
