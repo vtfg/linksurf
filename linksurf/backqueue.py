@@ -43,13 +43,18 @@ class BackQueue:
 
         while len(self.queues) < MAX_ACTIVE_DOMAINS:
             if not await self._enqueue_new_domain():
-                Logger().warning("back_queue.warning", message="No more pending domains available.")
-
                 break
+
+        enqueued_domains = len(self.queues)
+
+        if enqueued_domains == 0:
+            raise Exception("No domains available. Consider seeding new URLs.")
+
+        Logger().info("back_queue.start", message=f"Enqueued {enqueued_domains} domains.")
 
     async def on_stop(self):
         """
-        Writes in-memory data (pending URLs and domains' release time) to Database.
+        Writes in-memory data (pending URLs and domains' release time) to disk (Database).
         """
 
         # TODO: ^
@@ -137,7 +142,7 @@ class BackQueue:
             match response.status_code:
                 case 429 | 500:
                     delay_seconds = ONE_DAY_IN_SECONDS
-                    penalized = True
+                    locked = True
 
                     try:
                         await self.cache.save_domain_release_time(domain, port, time.time() + delay_seconds)

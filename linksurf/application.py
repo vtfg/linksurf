@@ -97,13 +97,6 @@ class Linksurf:
         loop.add_signal_handler(signal.SIGTERM, functools.partial(on_signal, signal.SIGTERM, loop))
 
         try:
-            await self.services.connect(self.settings)
-        except:
-            await self.shutdown()
-
-            return
-
-        try:
             await self.broker.connect()
         except:
             Logger().exception("broker.error", error="Broker connection failed.")
@@ -111,10 +104,24 @@ class Linksurf:
             await self.shutdown()
 
             return
+        else:
+            Logger().info("broker.connect")
 
-        Logger().info("broker.connect")
+        try:
+            await self.services.connect(self.settings)
+        except:
+            await self.shutdown()
 
-        await self.back_queue.on_start(self.services)
+            return
+
+        try:
+            await self.back_queue.on_start(self.services)
+        except:
+            Logger().exception("back_queue.error", error="Back Queue startup failed.")
+
+            await self.shutdown()
+
+            return
 
         components = [self.frontier, self.downloader, self.parser, self.storage]
 
