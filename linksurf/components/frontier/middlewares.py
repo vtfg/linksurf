@@ -1,7 +1,7 @@
 import asyncio
 from urllib.robotparser import RobotFileParser
 
-from linksurf.common.models import HTTPRequest, MimeType
+from linksurf.common.models import HTTPRequest, HTTPRequestMetadata, MimeType
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
@@ -119,7 +119,8 @@ class RobotsExclusionMiddleware(Middleware):
     async def _fetch(self, payload: Payload) -> tuple[RobotsRecord | None, Error | None]:
         robots_url = f"{payload.url.origin}/robots.txt"
 
-        request = HTTPRequest(url=robots_url, follow_redirects=True)
+        request = HTTPRequest(url=robots_url, follow_redirects=True,
+                              metadata=HTTPRequestMetadata(correlation_id=payload.correlation_id, component="Frontier"))
 
         try:
             response = await self.fetcher.http(request)

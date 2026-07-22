@@ -1,3 +1,4 @@
+import time
 from urllib.parse import urlsplit
 
 from httpx import (
@@ -12,6 +13,8 @@ from httpx import (
 from linksurf.common.constants import DEFAULT_USER_AGENT, MAX_REDIRECT_DEPTH
 from linksurf.common.models import HTTPRequest, HTTPResponse, Redirect
 from linksurf.common.settings import Settings
+from linksurf.events import RequestEvent
+from linksurf.events.bus import EventBus
 from linksurf.logger import Logger
 from linksurf.services.base import Service
 
@@ -85,6 +88,8 @@ class HTTPXFetcher(Fetcher):
             "User-Agent": self.user_agent,
         }
 
+        start_time = time.perf_counter()
+
         try:
             response = await self._client.request(
                 method=request.method,
@@ -93,20 +98,49 @@ class HTTPXFetcher(Fetcher):
                 timeout=request.timeout,
                 follow_redirects=request.follow_redirects,
             )
-        except httpxConnectTimeout as e:
-            raise ConnectTimeoutError(str(e)) from e
-        except httpxReadTimeout as e:
-            raise ReadTimeoutError(str(e)) from e
-        except httpxReadError as e:
-            raise ReadError(str(e)) from e
-        except httpxConnectError as e:
-            raise ConnectError(str(e)) from e
-        except httpxTooManyRedirects as e:
-            raise MaxRedirectsError(str(e)) from e
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
+            match e:
+                case httpxConnectTimeout():
+                    error = "Connection timed out."
+                    exception = ConnectTimeoutError(str(e))
+                case httpxReadTimeout():
+                    error = "Read timed out."
+                    exception = ReadTimeoutError(str(e))
+                case httpxReadError():
+                    error = "Read error."
+                    exception = ReadError(str(e))
+                case httpxConnectError():
+                    error = "Connect error."
+                    exception = ConnectError(str(e))
+                case httpxTooManyRedirects():
+                    error = "Too many redirects."
+                    exception = MaxRedirectsError(str(e))
+                case _:
+                    error = "Uncaught error."
+                    exception = e
+
+            exception_type = type(exception)
+            exception_path = f"{exception_type.__module__}.{exception_type.__qualname__}"
+
+            EventBus().emit(RequestEvent(
+                scheme=scheme, url=request.url, method=request.method,
+                duration_ms=duration_ms, error=error, exception=exception_path,
+                correlation_id=request.metadata.correlation_id, component=request.metadata.component,
+            ))
+
+            raise exception from e
 
         self._client.cookies.clear()
 
         elapsed_ms = response.elapsed.total_seconds() * 1000
+
+        EventBus().emit(RequestEvent(
+            scheme=scheme, url=request.url, method=request.method,
+            duration_ms=elapsed_ms, status_code=response.status_code,
+            correlation_id=request.metadata.correlation_id, component=request.metadata.component,
+        ))
 
         return HTTPResponse(
             url=str(response.url),

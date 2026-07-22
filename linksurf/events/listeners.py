@@ -35,7 +35,11 @@ class LoggingListener(Listener):
         data = asdict(event)
         name = data.pop("name")
         data.pop("correlation_id", None)
-        data.pop("exception", None)
+
+        # real exception objects are rendered via exc_info
+        # a plain string (e.g. RequestEvent's exception type path) is left in data as a normal field
+        if isinstance(exception, BaseException):
+            data.pop("exception", None)
 
         data = {key: _truncate_list(value) for key, value in data.items()}
 
@@ -74,9 +78,10 @@ class BetterStackListener(Listener):
         exception = getattr(event, "exception", None)
         data = asdict(event)
         name = data.pop("name")
-        data.pop("exception", None)
 
-        if exception is not None:
+        # real exception objects get formatted into a traceback string
+        # RequestEvent's exception field is already a plain string
+        if isinstance(exception, BaseException):
             data["exception"] = "".join(
                 traceback.format_exception(type(exception), exception, exception.__traceback__))
 

@@ -221,6 +221,20 @@ class PrioritizerErrorEvent:
     name: Literal["prioritizer.error"] = field(default="prioritizer.error", init=False)
 
 
+@dataclass
+class RequestEvent:
+    correlation_id: str
+    component: str
+    scheme: str
+    url: str
+    method: str
+    duration_ms: float
+    status_code: int | None = None
+    error: str | None = None
+    exception: str | None = None  # exception type path ("linksurf.services.fetcher.ReadTimeoutError", for example)
+    name: Literal["request"] = field(default="request", init=False)
+
+
 Event = Union[
     ComponentSubscribeEvent, ComponentLoopEvent,
     ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
@@ -230,4 +244,5 @@ Event = Union[
     MiddlewareStartEvent, MiddlewareFinishEvent, MiddlewareErrorEvent,
     FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
     PrioritizerStartEvent, PrioritizerFinishEvent, PrioritizerErrorEvent,
+    RequestEvent,
 ]

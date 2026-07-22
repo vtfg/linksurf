@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
 from linksurf.common.constants import MAX_REDIRECT_DEPTH, TEN_MEGABYTES_IN_BYTES
-from linksurf.common.models import HTTPRequest, MimeType, Redirect, URL, HTTPResponse
+from linksurf.common.models import HTTPRequest, HTTPRequestMetadata, MimeType, Redirect, URL, HTTPResponse
 from linksurf.common.payload import Content, Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
@@ -49,7 +49,9 @@ class Downloader(Component):
 
     async def download(self, payload: Payload, lock: Lock) -> Error | None:
         async with lock:
-            request = HTTPRequest(url=payload.url.address, follow_redirects=True)
+            request = HTTPRequest(url=payload.url.address, follow_redirects=True,
+                                  metadata=HTTPRequestMetadata(correlation_id=payload.correlation_id,
+                                                               component="Downloader"))
 
             response: HTTPResponse | None = None
             exception: Exception | None = None
@@ -101,20 +103,20 @@ class Downloader(Component):
         if not proceed:
             return None
 
-        mime_type = payload.get_metadata("content_type")
+        content_type = payload.get_metadata("content_type")
         key = payload.url.hash
 
         try:
-            await self.blob_storage.upload(response.body, key, content_type=mime_type)
+            await self.blob_storage.upload(response.body, key, content_type=content_type)
         except Exception as e:
             return Error("Blob upload failed.", retriable=True, exception=e)
 
         try:
-            type = MimeType(mime_type)
+            mime_type = MimeType(content_type)
         except ValueError:
-            type = MimeType.UNKNOWN
+            mime_type = MimeType.UNKNOWN
 
-        payload.content = Content(key=key, type=type)
+        payload.content = Content(key=key, type=mime_type)
         payload.request = request.to_summary()
 
         await self.publish("url.parse", payload)

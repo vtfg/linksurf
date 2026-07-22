@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -76,6 +76,12 @@ class HTTPRequestSummary:
     follow_redirects: bool = False
 
 
+@dataclass
+class HTTPRequestMetadata:
+    correlation_id: str
+    component: str
+
+
 @dataclass()
 class HTTPRequest:
     url: str
@@ -84,6 +90,7 @@ class HTTPRequest:
     proxy: str | None = None
     timeout: float = 30.0
     follow_redirects: bool = False
+    metadata: HTTPRequestMetadata = field(default_factory=HTTPRequestMetadata)
 
     def to_summary(self) -> HTTPRequestSummary:
         return HTTPRequestSummary(
