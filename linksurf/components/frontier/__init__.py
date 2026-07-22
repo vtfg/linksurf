@@ -87,6 +87,7 @@ class Frontier(Component):
             data = URLModel.from_payload(payload, status=Status.PENDING)
 
             await self.database.save_url(data)
+            await self.database.save_domain(payload.url.domain)
         except Exception as e:
             return Error("Database write failed.", retriable=True, exception=e)
 

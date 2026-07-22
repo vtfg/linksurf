@@ -52,15 +52,18 @@ class Downloader(Component):
             request = HTTPRequest(url=payload.url.address, follow_redirects=True)
 
             response: HTTPResponse | None = None
+            exception: Exception | None = None
 
             try:
                 response = await self.fetcher.http(request)
             except MaxRedirectsError as e:
                 return Error("Too many redirects.", retriable=False, exception=e)
             except Exception as e:
+                exception = e
+
                 return Error("HTTP fetch failed.", retriable=True, exception=e)
             finally:
-                await self.back_queue.report(payload, response)
+                await self.back_queue.report(payload, response, exception=exception)
 
         if response is None:
             return Error("HTTP fetch returned empty response.", retriable=True)
@@ -69,7 +72,10 @@ class Downloader(Component):
             return Error(f"Response has unacceptable status ({response.status_code}).", retriable=False)
 
         if response.redirects:
-            self._append_redirects(payload, response.redirects)
+            # depth needs to be recalculated because the payload can already have an existing redirects fields
+            # happens when cross-domain redirect, a new payload gets sent back to the Frontier and Downloader execution stops
+
+            self._append_redirects_to_payload(payload, response.redirects)
 
         if payload.redirects and payload.redirects[-1].depth >= MAX_REDIRECT_DEPTH:
             return Error("Redirect depth limit exceeded.", retriable=False)
@@ -115,10 +121,7 @@ class Downloader(Component):
 
         return None
 
-    def _append_redirects(self, payload: Payload, redirects: list) -> None:
-        # depth needs to be recalculated because the payload can already have an existing redirects fields
-        # happens when cross-domain redirect, a new payload gets sent back to the Frontier and Downloader execution stops
-
+    def _append_redirects_to_payload(self, payload: Payload, redirects: list) -> None:
         start_depth = len(payload.redirects)
 
         for i, redirect in enumerate(redirects):

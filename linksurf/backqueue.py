@@ -1,16 +1,22 @@
 import asyncio
 import time
 from asyncio import sleep, Lock, Queue
+from datetime import datetime, timezone, timedelta
 
 from linksurf.common.models import HTTPResponse, URL
 from linksurf.common.payload import Payload
 from linksurf.logger import Logger
 from linksurf.services import Services, Cache, Database
 from linksurf.services.cache import ONE_DAY_IN_SECONDS
+from linksurf.services.fetcher import ConnectError, ConnectTimeoutError, ReadError, ReadTimeoutError
 
 DEFAULT_DOMAIN_DELAY = 1.0  # seconds
+LOCK_DURATION_SECONDS = ONE_DAY_IN_SECONDS
 MAX_ACTIVE_DOMAINS = 100  # 5x the Downloader's concurrency to prevent idle workers
 MAX_URLS_PER_DOMAIN = 5
+
+LOCK_TRIGGERING_STATUS_CODES = {403, 429, 500, 502, 503}
+LOCK_TRIGGERING_EXCEPTIONS = (ConnectTimeoutError, ReadTimeoutError, ReadError, ConnectError)
 
 
 class BackQueue:
@@ -120,44 +126,52 @@ class BackQueue:
 
                         return payload, lock
 
-                Logger().debug("back_queue.debug", message="No available domains.")
+                # temporary log used to check how many and how much time the workers stay idle
+                # if higher than expected the MAX_ACTIVE_DOMAINS could be increased or new seeds from different domains added
+                # Logger().debug("back_queue.debug", message="No available domains.")
 
             await sleep(1)
 
-    async def report(self, payload: Payload, response: HTTPResponse | None):
+    async def report(self, payload: Payload, response: HTTPResponse | None, exception: Exception | None = None) -> None:
         """
-        Receives an URL and adjusts the domain's delay based on the response's status code and elapsed time.
-        """
+        Adjusts a domain's delay based on the response's status code and elapsed time.
 
-        # TODO: define how to exponentially back-off or dynamically block a domain
-        # ^ the system needs to keep track of previous responses
+        A blocking status code or a connection exception causes a temporary domain lock and eventually a permanent block.
+        """
 
         domain = payload.url.domain
-        port = payload.url.port
 
         delay_seconds = DEFAULT_DOMAIN_DELAY
-        penalized = False
 
-        if response is not None:
-            match response.status_code:
-                case 429 | 500:
-                    delay_seconds = ONE_DAY_IN_SECONDS
-                    locked = True
+        should_lock = (
+                (response is not None and response.status_code in LOCK_TRIGGERING_STATUS_CODES)
+                or isinstance(exception, LOCK_TRIGGERING_EXCEPTIONS)
+        )
 
-                    try:
-                        await self.cache.save_domain_release_time(domain, port, time.time() + delay_seconds)
-                    except Exception as e:
-                        Logger().error("back_queue.error", message="Failed to save domain release time.",
-                                       exception=str(e))
-                case _:
-                    # since robots.txt's Crawl-Delay is no longer used this formula helps to apply a slightly increased delay
-                    delay_seconds = response.elapsed_ms / 1000 + DEFAULT_DOMAIN_DELAY
+        if should_lock:
+            until = datetime.now(timezone.utc) + timedelta(seconds=LOCK_DURATION_SECONDS)
+            reason = f"Received status {response.status_code}" if response is not None else f"Caught exception {type(exception).__name__}"
+
+            try:
+                status = await self.database.lock_domain(domain, until, reason)
+
+                Logger().warning("back_queue.locked", domain=domain, status=status.value, reason=reason)
+            except Exception as e:
+                Logger().error("back_queue.error", message="Failed to lock domain.", exception=str(e))
+        elif response is not None:
+            # since robots.txt's Crawl-Delay is no longer used this formula helps to apply a slightly increased delay
+            delay_seconds = response.elapsed_ms / 1000 + DEFAULT_DOMAIN_DELAY
+
+            try:
+                await self.database.unlock_domain(domain)
+            except Exception as e:
+                Logger().error("back_queue.error", message="Failed to reset domain lock.", exception=str(e))
 
         self.release_times[domain] = time.time() + delay_seconds
 
         Logger().debug("back_queue.debug", message=f"Adjusted {domain} delay to {delay_seconds}s")
 
-        if penalized or self.queues[domain].empty():
+        if should_lock or self.queues[domain].empty():
             asyncio.create_task(self._cleanup_domain(domain))
 
     async def _cleanup_domain(self, domain: str) -> None:
@@ -191,7 +205,14 @@ class BackQueue:
 
             current_domains = list(self.queues.keys())
 
-            new_domains = await self.database.get_distinct_domains(current_domains, limit=1)
+            try:
+                excluded_domains = await self.database.get_excluded_domains()
+            except Exception as e:
+                Logger().error("back_queue.error", message="Failed to get excluded domains.", exception=str(e))
+
+                excluded_domains = []
+
+            new_domains = await self.database.get_distinct_domains(current_domains + excluded_domains, limit=1)
 
             if not new_domains:
                 return False

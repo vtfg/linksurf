@@ -1,12 +1,35 @@
 from urllib.parse import urlsplit
 
-from httpx import AsyncClient, TooManyRedirects
+from httpx import (
+    AsyncClient,
+    ConnectTimeout as httpxConnectTimeout,
+    ConnectError as httpxConnectError,
+    ReadTimeout as httpxReadTimeout,
+    ReadError as httpxReadError,
+    TooManyRedirects as httpxTooManyRedirects,
+)
 
 from linksurf.common.constants import DEFAULT_USER_AGENT, MAX_REDIRECT_DEPTH
 from linksurf.common.models import HTTPRequest, HTTPResponse, Redirect
 from linksurf.common.settings import Settings
 from linksurf.logger import Logger
 from linksurf.services.base import Service
+
+
+class ConnectError(Exception):
+    pass
+
+
+class ConnectTimeoutError(Exception):
+    pass
+
+
+class ReadError(Exception):
+    pass
+
+
+class ReadTimeoutError(Exception):
+    pass
 
 
 class MaxRedirectsError(Exception):
@@ -70,7 +93,15 @@ class HTTPXFetcher(Fetcher):
                 timeout=request.timeout,
                 follow_redirects=request.follow_redirects,
             )
-        except TooManyRedirects as e:
+        except httpxConnectTimeout as e:
+            raise ConnectTimeoutError(str(e)) from e
+        except httpxReadTimeout as e:
+            raise ReadTimeoutError(str(e)) from e
+        except httpxReadError as e:
+            raise ReadError(str(e)) from e
+        except httpxConnectError as e:
+            raise ConnectError(str(e)) from e
+        except httpxTooManyRedirects as e:
             raise MaxRedirectsError(str(e)) from e
 
         self._client.cookies.clear()
