@@ -10,7 +10,7 @@ class CountryFilter(Filter):
     def __init__(self, allowed: list[Country]):
         self.allowed = allowed
 
-    def execute(self, payload: Payload) -> FilterResponse:
+    async def execute(self, payload: Payload) -> FilterResponse:
         country = payload.get_metadata("country")
 
         if country not in self.allowed:
@@ -23,7 +23,7 @@ class URLExtensionFilter(Filter):
     def __init__(self, allowed: list[str]):
         self.allowed = allowed
 
-    def execute(self, payload: Payload) -> FilterResponse:
+    async def execute(self, payload: Payload) -> FilterResponse:
         extension = payload.get_metadata("extension")
 
         if extension not in self.allowed:
@@ -35,7 +35,7 @@ class URLExtensionFilter(Filter):
 class RobotsExclusionFilter(Filter):
     DEPENDS_ON = [RobotsExclusionMiddleware]
 
-    def execute(self, payload: Payload) -> FilterResponse:
+    async def execute(self, payload: Payload) -> FilterResponse:
         robots = dict(payload.get_metadata("robots"))
 
         return FilterResponse(robots.get("can_fetch", False), None)

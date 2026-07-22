@@ -1,87 +1,103 @@
+import asyncio
 import json
-from typing import Any, Callable
+from typing import Any, Callable, Awaitable
 
-import pika
-import pika.spec
-from pika.adapters.blocking_connection import BlockingChannel
+import aio_pika
 
 from linksurf.broker.base import Broker
 from linksurf.common.constants import MAX_QUEUE_PRIORITY, MIN_QUEUE_PRIORITY
 from linksurf.common.payload import Payload
-from linksurf.components.base import Component
 from linksurf.logger import Logger
 
 EXCHANGE = "linksurf.exchange"
 
 
 class RabbitMQBroker(Broker):
+    connection: aio_pika.abc.AbstractRobustConnection
+    channel: aio_pika.abc.AbstractRobustChannel
+
     def __init__(self, host: str = "localhost", port: int = 5672):
         super().__init__()
 
         self.host = host
         self.port = port
 
-        self.connection: pika.BlockingConnection | None = None
-        self.channel: BlockingChannel | None = None
-        self.components: list[Component] = []
+        self._consumers: list[tuple[aio_pika.abc.AbstractQueue, str]] = []
+        self._in_flight: set[asyncio.Task] = set()
 
-    def connect(self):
-        self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters(host=self.host, port=self.port)
+    async def connect(self):
+        self.connection = await aio_pika.connect_robust(
+            host=self.host,
+            port=self.port
         )
 
-        self.channel = self.connection.channel()
-        self.channel.exchange_declare(exchange=EXCHANGE, exchange_type="direct", durable=True)
-        self.channel.basic_qos(prefetch_count=1)
+        self.channel = await self.connection.channel()
+        await self.channel.declare_exchange(name=EXCHANGE, type="direct", durable=True)
+        await self.channel.set_qos(prefetch_count=1)
 
-    def disconnect(self):
+        self._stop_event = asyncio.Event()
+
+    async def disconnect(self):
         if self.connection and not self.connection.is_closed:
-            self.connection.close()
+            await self.connection.close()
 
-    def seed(self, topic: str, data: Any):
-        self.publish(topic, data, MAX_QUEUE_PRIORITY)
+    async def seed(self, topic: str, data: Any):
+        await self.publish(topic, data, MAX_QUEUE_PRIORITY)
 
-    def subscribe(self, topic: str, handler: Callable[[Payload], None]):
-        self.channel.queue_declare(queue=topic, durable=True, arguments={"x-max-priority": MAX_QUEUE_PRIORITY})
-        self.channel.queue_bind(exchange=EXCHANGE, queue=topic, routing_key=topic)
+    async def subscribe(self, topic: str, handler: Callable[[Payload], Awaitable[None]], concurrency: int = 1):
+        if concurrency < 1:
+            raise ValueError("Concurrency must be >= 1.")
 
-        def callback(
-                ch: BlockingChannel,
-                method: pika.spec.Basic.Deliver,
-                _: pika.spec.BasicProperties,
-                body: bytes,
-        ):
+        # dedicated channel per subscription so prefetch can be tuned independently per topic
+        channel = await self.connection.channel()
+        await channel.set_qos(prefetch_count=concurrency)
+
+        queue = await channel.declare_queue(
+            name=topic, durable=True, arguments={"x-max-priority": MAX_QUEUE_PRIORITY}
+        )
+        await queue.bind(exchange=EXCHANGE, routing_key=topic)
+
+        async def callback(message: aio_pika.abc.AbstractIncomingMessage):
+            task = asyncio.current_task()
+            self._in_flight.add(task)
+
             try:
-                data = Payload.from_dict(json.loads(body))
-            except Exception as e:
-                Logger().error("broker.malformed_message", exception=str(e))
+                async with message.process(ignore_processed=True):
+                    try:
+                        data = Payload.from_dict(json.loads(message.body))
+                    except Exception as e:
+                        Logger().error("broker.malformed_message", exception=str(e))
 
-                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                        await message.reject(requeue=False)
 
-                return
+                        return
 
-            handler(data)
+                    await handler(data)
+            finally:
+                self._in_flight.discard(task)
 
-            ch.basic_ack(delivery_tag=method.delivery_tag)
+        consumer_tag = await queue.consume(callback)
+        self._consumers.append((queue, consumer_tag))
 
-        self.channel.basic_consume(queue=topic, on_message_callback=callback)
+    async def publish(self, topic: str, data: Any, priority: int = MIN_QUEUE_PRIORITY):
+        exchange = await self.channel.get_exchange(EXCHANGE)
 
-    def publish(self, topic: str, data: Any, priority: int = MIN_QUEUE_PRIORITY):
-        self.channel.basic_publish(
-            exchange=EXCHANGE,
-            routing_key=topic,
-            body=json.dumps(data.to_dict()).encode(),
-            properties=pika.BasicProperties(
-                delivery_mode=pika.DeliveryMode.Persistent,
+        await exchange.publish(
+            aio_pika.Message(
+                body=json.dumps(data.to_dict()).encode(),
+                content_type="application/json",
+                content_encoding="utf-8",
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                 priority=priority,
             ),
+            routing_key=topic,
         )
 
-    def delayed_publish(self, topic: str, data: Any, delay_seconds: int, priority: int = MIN_QUEUE_PRIORITY):
+    async def delayed_publish(self, topic: str, data: Any, delay_seconds: int, priority: int = MIN_QUEUE_PRIORITY):
         delay_queue = f"{topic}.delay.{delay_seconds}"
 
-        self.channel.queue_declare(
-            queue=delay_queue,
+        queue = await self.channel.declare_queue(
+            name=delay_queue,
             durable=True,
             arguments={
                 "x-message-ttl": delay_seconds * 1000,
@@ -89,20 +105,37 @@ class RabbitMQBroker(Broker):
                 "x-dead-letter-routing-key": topic,
             },
         )
+        
+        await queue.bind(exchange=EXCHANGE, routing_key=delay_queue)
 
-        self.channel.basic_publish(
-            exchange="",
-            routing_key=delay_queue,
-            body=json.dumps(data.to_dict()).encode(),
-            properties=pika.BasicProperties(
-                delivery_mode=pika.DeliveryMode.Persistent,
+        exchange = await self.channel.get_exchange(EXCHANGE)
+
+        await exchange.publish(
+            aio_pika.Message(
+                body=json.dumps(data.to_dict()).encode(),
+                content_type="application/json",
+                content_encoding="utf-8",
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                 priority=priority,
             ),
+            routing_key=delay_queue,
         )
 
-    def loop(self):
-        self.channel.start_consuming()
+    async def loop(self):
+        # every queue is already being consumed at this point (subscribe() was called
+        # once per component before this); this just blocks the coroutine open
+        await self._stop_event.wait()
+
+        # stop accepting new messages before disconnect() runs, then let whatever's
+        # already in flight finish naturally instead of being cancelled mid-request
+        for queue, consumer_tag in self._consumers:
+            await queue.cancel(consumer_tag)
+
+        if self._in_flight:
+            Logger().info("broker.draining", pending=len(self._in_flight))
+
+            await asyncio.gather(*self._in_flight, return_exceptions=True)
 
     def stop(self):
-        if self.channel is not None:
-            self.channel.stop_consuming()
+        if self._stop_event is not None:
+            self._stop_event.set()

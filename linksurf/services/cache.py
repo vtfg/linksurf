@@ -1,7 +1,8 @@
+import math
 from dataclasses import dataclass
 from typing import Tuple
 
-import redis
+import redis.asyncio as redis
 
 from linksurf.common.models import URL
 from linksurf.common.settings import Settings
@@ -16,8 +17,7 @@ _DOMAIN_ROBOTS_SUFFIX = ":robots"
 _DOMAIN_STATUS_TTL = ONE_DAY_IN_SECONDS
 _URL_SEEN_CACHE_KEY = "linksurf:seen"
 _ROBOTS_CACHE_TTL = ONE_DAY_IN_SECONDS
-_LAST_FETCH_KEY_PREFIX = "linksurf:fetch:"
-_LAST_FETCH_TTL = ONE_DAY_IN_SECONDS
+_RELEASE_TIME_KEY_PREFIX = "linksurf:release:"
 
 
 @dataclass
@@ -37,39 +37,39 @@ class RobotsRecord:
 class Cache(Service):
     NAME = "cache"
 
-    def save_domain_status(self, domain: str, port: int, available: bool, ip: str) -> None:
-        pass
+    async def save_domain_status(self, domain: str, port: int, available: bool, ip: str) -> None:
+        raise NotImplementedError()
 
-    def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str] | None:
-        pass
+    async def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str] | None:
+        raise NotImplementedError()
 
-    def save_domain_robots_txt(self, domain: str, port: int, status_code: int, content_type: str | None,
-                               text: str) -> None:
-        pass
+    async def save_domain_robots_txt(self, domain: str, port: int, status_code: int, content_type: str | None,
+                                     text: str) -> None:
+        raise NotImplementedError()
 
-    def get_domain_robots_txt(self, domain: str, port: int) -> RobotsRecord | None:
-        pass
+    async def get_domain_robots_txt(self, domain: str, port: int) -> RobotsRecord | None:
+        raise NotImplementedError()
 
-    def mark_url_seen(self, url: URL) -> None:
-        pass
+    async def mark_url_seen(self, url: URL) -> None:
+        raise NotImplementedError()
 
-    def unmark_url_seen(self, url: URL) -> None:
-        pass
+    async def unmark_url_seen(self, url: URL) -> None:
+        raise NotImplementedError()
 
-    def is_url_seen(self, url: URL) -> bool:
-        pass
+    async def is_url_seen(self, url: URL) -> bool:
+        raise NotImplementedError()
 
-    def save_domain_last_fetch(self, domain: str, port: int, timestamp: float) -> None:
-        pass
+    async def save_domain_release_time(self, domain: str, port: int, time: float) -> None:
+        raise NotImplementedError()
 
-    def get_domain_last_fetch(self, domain: str, port: int) -> float | None:
-        pass
+    async def get_domain_release_time(self, domain: str, port: int) -> float | None:
+        raise NotImplementedError()
 
-    def get_domain_metrics(self, domain: str, port: int) -> DomainMetrics | None:
-        pass
+    async def get_domain_metrics(self, domain: str, port: int) -> DomainMetrics | None:
+        raise NotImplementedError()
 
-    def update_domain_metrics(self, domain: str, port: int, response_ms: float, content_size: int) -> None:
-        pass
+    async def update_domain_metrics(self, domain: str, port: int, response_ms: float, content_size: int) -> None:
+        raise NotImplementedError()
 
 
 class RedisCache(Cache):
@@ -79,83 +79,115 @@ class RedisCache(Cache):
         self.db = db
         self._client: redis.Redis | None = None
 
-    def on_start(self, settings: Settings):
-        self._client = redis.Redis(host=self.host, port=self.port, db=self.db, decode_responses=True)
+    async def on_start(self, settings: Settings):
+        client = redis.Redis(host=self.host, port=self.port, db=self.db, decode_responses=True)
 
-        self._client.ping()
+        await client.ping()
 
-    def on_stop(self):
+        self._client = client
+
+    async def on_stop(self):
         if self._client is not None:
-            self._client.close()
+            await self._client.close()
             self._client = None
 
-    def save_domain_status(self, domain: str, port: int, available: bool, ip: str) -> None:
+    async def save_domain_status(self, domain: str, port: int, available: bool, ip: str) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
         key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_STATUS_SUFFIX}"
 
-        self._client.hset(key, mapping={"available": int(available), "ip": ip})
-        self._client.expire(key, _DOMAIN_STATUS_TTL)
+        await self._client.hset(key, mapping={"available": int(available), "ip": ip})
+        await self._client.expire(key, _DOMAIN_STATUS_TTL)
 
-    def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str] | None:
+    async def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str] | None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
         key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_STATUS_SUFFIX}"
 
-        cached = self._client.hgetall(key)
+        cached = await self._client.hgetall(key)
 
         if cached:
             return cached.get("available") == "1", cached.get("ip")
 
         return None
 
-    def save_domain_robots_txt(self, domain: str, port: int, status_code: int, content_type: str | None,
-                               text: str) -> None:
+    async def save_domain_robots_txt(self, domain: str, port: int, status_code: int, content_type: str | None,
+                                     text: str) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
         key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_ROBOTS_SUFFIX}"
 
-        self._client.hset(key, mapping={
+        await self._client.hset(key, mapping={
             "status_code": status_code,
             "content_type": content_type or "",
             "text": text,
         })
 
-        self._client.expire(key, _ROBOTS_CACHE_TTL)
+        await self._client.expire(key, _ROBOTS_CACHE_TTL)
 
-    def get_domain_robots_txt(self, domain: str, port: int) -> RobotsRecord | None:
+    async def get_domain_robots_txt(self, domain: str, port: int) -> RobotsRecord | None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
         key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_ROBOTS_SUFFIX}"
 
-        data = self._client.hgetall(key)
+        data = await self._client.hgetall(key)
 
         if not data:
             return None
 
         return RobotsRecord(
             status_code=int(data["status_code"]),
-            content_type=data.get("content_type") or None,
+            content_type=data.get("content_type"),
             text=data.get("text", ""),
         )
 
-    def mark_url_seen(self, url: URL) -> None:
-        self._client.sadd(_URL_SEEN_CACHE_KEY, url.hash)
+    async def mark_url_seen(self, url: URL) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
 
-    def unmark_url_seen(self, url: URL) -> None:
-        self._client.srem(_URL_SEEN_CACHE_KEY, url.hash)
+        await self._client.sadd(_URL_SEEN_CACHE_KEY, url.hash)
 
-    def is_url_seen(self, url: URL) -> bool:
-        return self._client.sismember(_URL_SEEN_CACHE_KEY, url.hash) == 1
+    async def unmark_url_seen(self, url: URL) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
 
-    def save_domain_last_fetch(self, domain: str, port: int, timestamp: float) -> None:
-        key = f"{_LAST_FETCH_KEY_PREFIX}{domain}@{port}"
+        await self._client.srem(_URL_SEEN_CACHE_KEY, url.hash)
 
-        self._client.set(key, timestamp, ex=_LAST_FETCH_TTL)
+    async def is_url_seen(self, url: URL) -> bool:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
 
-    def get_domain_last_fetch(self, domain: str, port: int) -> float | None:
-        key = f"{_LAST_FETCH_KEY_PREFIX}{domain}@{port}"
+        return await self._client.sismember(_URL_SEEN_CACHE_KEY, url.hash) == 1
 
-        value = self._client.get(key)
+    async def save_domain_release_time(self, domain: str, port: int, time: float) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
+        key = f"{_RELEASE_TIME_KEY_PREFIX}{domain}@{port}"
+
+        await self._client.set(key, time, ex=math.ceil(time))
+
+    async def get_domain_release_time(self, domain: str, port: int) -> float | None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
+        key = f"{_RELEASE_TIME_KEY_PREFIX}{domain}@{port}"
+
+        value = await self._client.get(key)
 
         return float(value) if value is not None else None
 
-    def get_domain_metrics(self, domain: str, port: int) -> DomainMetrics | None:
+    async def get_domain_metrics(self, domain: str, port: int) -> DomainMetrics | None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
         key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_METRICS_SUFFIX}"
 
-        data = self._client.hgetall(key)
+        data = await self._client.hgetall(key)
 
         if not data:
             return None
@@ -166,10 +198,13 @@ class RedisCache(Cache):
             avg_content_size=float(data["avg_content_size"]),
         )
 
-    def update_domain_metrics(self, domain: str, port: int, response_ms: float, content_size: int) -> None:
+    async def update_domain_metrics(self, domain: str, port: int, response_ms: float, content_size: int) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
         key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_METRICS_SUFFIX}"
 
-        current = self.get_domain_metrics(domain, port)
+        current = await self.get_domain_metrics(domain, port)
 
         if current is None:
             total = 1
@@ -180,7 +215,7 @@ class RedisCache(Cache):
             avg_response_ms = current.avg_response_ms + (response_ms - current.avg_response_ms) / total
             avg_content_size = current.avg_content_size + (content_size - current.avg_content_size) / total
 
-        self._client.hset(key, mapping={
+        await self._client.hset(key, mapping={
             "total_crawled": total,
             "avg_response_ms": avg_response_ms,
             "avg_content_size": avg_content_size,

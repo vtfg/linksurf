@@ -8,7 +8,7 @@ class ContentTypeMiddleware(Middleware):
     Reads the URL's content type from the response headers.
     """
 
-    def execute(self, payload: Payload) -> MiddlewareResponse:
+    async def execute(self, payload: Payload) -> MiddlewareResponse:
         raw = payload.response.headers.get("Content-Type")
         mime_type = raw.split(";")[0].strip() if raw else None
 
@@ -25,7 +25,7 @@ class ContentLengthMiddleware(Middleware):
     Reads and parses the URL's content length from the response headers as bytes.
     """
 
-    def execute(self, payload: Payload) -> MiddlewareResponse:
+    async def execute(self, payload: Payload) -> MiddlewareResponse:
         raw_length = payload.response.headers.get("Content-Length")
 
         chunked = "chunked" in payload.response.headers.get("Transfer-Encoding", "").lower()

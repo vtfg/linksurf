@@ -1,6 +1,7 @@
+import asyncio
 import time
 from dataclasses import dataclass
-from typing import Callable, NamedTuple
+from typing import Any, Callable, NamedTuple, Awaitable
 
 from linksurf.broker.base import Broker
 from linksurf.common.constants import MAX_RETRIES, MIN_QUEUE_PRIORITY
@@ -13,14 +14,14 @@ from linksurf.services import Services
 
 
 class Executor:
-    def on_start(self, settings: Settings, services: Services):
+    async def on_start(self, settings: Settings, services: Services):
         pass
 
-    def on_stop(self):
+    async def on_stop(self):
         pass
 
-    def execute(self, payload: Payload):
-        pass
+    async def execute(self, payload: Payload):
+        raise NotImplementedError()
 
 
 class MiddlewareResponse(Response[Payload]):
@@ -29,8 +30,8 @@ class MiddlewareResponse(Response[Payload]):
 
 # Enriches metadata
 class Middleware(Executor):
-    def execute(self, payload: Payload) -> MiddlewareResponse:
-        pass
+    async def execute(self, payload: Payload) -> MiddlewareResponse:
+        raise NotImplementedError()
 
 
 class RuleResponse(Response[bool]):
@@ -38,8 +39,8 @@ class RuleResponse(Response[bool]):
 
 
 class Rule(Executor):
-    def execute(self, payload: Payload) -> RuleResponse:
-        pass
+    async def execute(self, payload: Payload) -> RuleResponse:
+        raise NotImplementedError()
 
 
 class FilterResponse(Response[bool]):
@@ -50,8 +51,8 @@ class FilterResponse(Response[bool]):
 class Filter(Executor):
     DEPENDS_ON: list[Middleware]
 
-    def execute(self, payload: Payload) -> FilterResponse:
-        pass
+    async def execute(self, payload: Payload) -> FilterResponse:
+        raise NotImplementedError()
 
 
 class PrioritizerResponse(Response[int]):
@@ -59,8 +60,8 @@ class PrioritizerResponse(Response[int]):
 
 
 class Prioritizer(Executor):
-    def execute(self, payload: Payload) -> PrioritizerResponse:
-        pass
+    async def execute(self, payload: Payload) -> PrioritizerResponse:
+        raise NotImplementedError()
 
 
 class DeduplicatorCheckResponse(NamedTuple):
@@ -74,20 +75,20 @@ class DeduplicatorRegisterResponse:
 
 
 class Deduplicator:
-    def on_start(self, settings: Settings, services: Services):
+    async def on_start(self, settings: Settings, services: Services):
         pass
 
-    def on_stop(self):
+    async def on_stop(self):
         pass
 
-    def check(self, payload: Payload) -> DeduplicatorCheckResponse:
-        pass
+    async def check(self, payload: Payload) -> DeduplicatorCheckResponse:
+        raise NotImplementedError()
 
-    def register(self, payload: Payload) -> Error | None:
-        pass
+    async def register(self, payload: Payload) -> Error | None:
+        raise NotImplementedError()
 
-    def unregister(self, payload: Payload) -> Error | None:
-        pass
+    async def unregister(self, payload: Payload) -> Error | None:
+        raise NotImplementedError()
 
 
 class Component:
@@ -103,28 +104,54 @@ class Component:
         self.prioritizer: Prioritizer | None = None
 
         self._component_name = type(self).__name__
-        self._execution_correlation_id: str | None = None
+        self._looping = False
+        self._loop_tasks: list[asyncio.Task] = []
+        self._loop_in_flight: set[asyncio.Task] = set()
 
-    def on_start(self, settings: Settings, services: Services):
+    async def on_start(self, settings: Settings, services: Services):
         for rule in self.rules:
-            rule.on_start(settings, services)
+            await rule.on_start(settings, services)
 
         if self.deduplicator is not None:
-            self.deduplicator.on_start(settings, services)
+            await self.deduplicator.on_start(settings, services)
 
         for middleware in self.middlewares:
-            middleware.on_start(settings, services)
+            await middleware.on_start(settings, services)
 
         for filter in self.filters:
-            filter.on_start(settings, services)
+            await filter.on_start(settings, services)
 
         if self.prioritizer is not None:
-            self.prioritizer.on_start(settings, services)
+            await self.prioritizer.on_start(settings, services)
 
-    def on_stop(self):
-        pass
+    async def on_stop(self):
+        self._looping = False
 
-    def rule(self, payload: Payload) -> tuple[bool | None, Error | None]:
+        if self._loop_in_flight:
+            Logger().warning("component.draining", component=self._component_name,
+                             pending=len(self._loop_in_flight))
+
+            await asyncio.gather(*self._loop_in_flight, return_exceptions=True)
+
+        self._loop_tasks = []
+        self._loop_in_flight = set()
+
+        for rule in self.rules:
+            await rule.on_stop()
+
+        if self.deduplicator is not None:
+            await self.deduplicator.on_stop()
+
+        for middleware in self.middlewares:
+            await middleware.on_stop()
+
+        for filter in self.filters:
+            await filter.on_stop()
+
+        if self.prioritizer is not None:
+            await self.prioritizer.on_stop()
+
+    async def rule(self, payload: Payload) -> tuple[bool | None, Error | None]:
         """
         Executes all rules. Returns True if the component should continue executing.
         """
@@ -143,7 +170,7 @@ class Component:
             EventBus().emit(
                 RuleStartEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name))
 
-            response = rule.execute(payload)
+            response = await rule.execute(payload)
 
             if response.error is not None:
                 EventBus().emit(
@@ -162,13 +189,21 @@ class Component:
 
         return True, None
 
-    def deduplicate(self, payload: Payload) -> tuple[bool | None, Error | None]:
+    async def deduplicate(self, payload: Payload) -> tuple[bool | None, Error | None]:
         """
         Checks if duplicate and registers if not.
         """
 
         if self.deduplicator is None:
             raise Exception("Deduplicator not defined.")
+
+        if payload.deduplicated:
+            # this payload was already deduplicated once; re-checking would only block its own retry
+
+            Logger().debug("component.debug", component=self._component_name,
+                           url=payload.url.address, message="Bypassing deduplication.")
+
+            return False, None
 
         from linksurf.events import (
             DeduplicatorStartEvent, DeduplicatorFinishEvent, DeduplicatorErrorEvent,
@@ -182,7 +217,7 @@ class Component:
         EventBus().emit(DeduplicatorStartEvent(correlation_id=correlation_id, url=url, component=component_name,
                                                deduplicator=deduplicator_name))
 
-        response = self.deduplicator.check(payload)
+        response = await self.deduplicator.check(payload)
 
         if response.error is not None:
             EventBus().emit(
@@ -197,9 +232,11 @@ class Component:
                 DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                         deduplicator=deduplicator_name, seen=True))
 
+            payload.deduplicated = True
+
             return True, None
 
-        error = self.deduplicator.register(payload)
+        error = await self.deduplicator.register(payload)
 
         if error is not None:
             EventBus().emit(
@@ -209,13 +246,15 @@ class Component:
 
             return False, error
 
+        payload.deduplicated = True
+
         EventBus().emit(
             DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                     deduplicator=deduplicator_name, seen=False))
 
         return False, None
 
-    def enrich(self, payload: Payload) -> Error | None:
+    async def enrich(self, payload: Payload) -> Error | None:
         """
         Executes all middlewares. Updates payload in place.
         """
@@ -235,7 +274,7 @@ class Component:
             EventBus().emit(MiddlewareStartEvent(correlation_id=correlation_id, url=url, component=component_name,
                                                  middleware=middleware_name))
 
-            response = middleware.execute(payload)
+            response = await middleware.execute(payload)
 
             if response.error is not None:
                 EventBus().emit(
@@ -255,7 +294,7 @@ class Component:
 
         return None
 
-    def filter(self, payload: Payload) -> tuple[bool | None, Error | None]:
+    async def filter(self, payload: Payload) -> tuple[bool | None, Error | None]:
         """
         Executes all middlewares and filters. Returns True if the component should continue executing.
         """
@@ -268,7 +307,7 @@ class Component:
         url = payload.url.address
         component_name = type(self).__name__
 
-        error = self.enrich(payload)
+        error = await self.enrich(payload)
 
         if error is not None:
             return None, error
@@ -279,7 +318,7 @@ class Component:
             EventBus().emit(
                 FilterStartEvent(correlation_id=correlation_id, url=url, component=component_name, filter=filter_name))
 
-            response = filter.execute(payload)
+            response = await filter.execute(payload)
 
             if response.error is not None:
                 EventBus().emit(
@@ -299,7 +338,7 @@ class Component:
 
         return True, None
 
-    def prioritize(self, payload: Payload) -> tuple[int | None, Error | None]:
+    async def prioritize(self, payload: Payload) -> tuple[int | None, Error | None]:
         """
         Calculates and returns a priority number.
         """
@@ -321,7 +360,7 @@ class Component:
             component=component_name, prioritizer=prioritizer_name,
         ))
 
-        response = self.prioritizer.execute(payload)
+        response = await self.prioritizer.execute(payload)
 
         if response.error is not None:
             EventBus().emit(PrioritizerErrorEvent(
@@ -334,6 +373,19 @@ class Component:
 
             return None, response.error
 
+        if not response.data:
+            error = Error("Prioritizer gave empty response.", retriable=True)
+
+            EventBus().emit(PrioritizerErrorEvent(
+                correlation_id=correlation_id, url=url,
+                component=component_name, prioritizer=prioritizer_name,
+                error=error.message,
+                retriable=error.retriable,
+                exception=error.exception,
+            ))
+
+            return None, error
+
         EventBus().emit(PrioritizerFinishEvent(
             correlation_id=correlation_id, url=url,
             component=component_name, prioritizer=prioritizer_name,
@@ -342,14 +394,18 @@ class Component:
 
         return response.data, None
 
-    def subscribe(self, topic: str, callback: Callable[[Payload], Error | None]) -> None:
+    async def subscribe(self, topic: str, callback: Callable[[Payload], Awaitable[Error | None]],
+                        concurrency: int = 1) -> None:
+        if concurrency < 1:
+            raise ValueError("Concurrency must be >= 1.")
+
         from linksurf.events import ComponentSubscribeEvent
 
         component_name = type(self).__name__
 
         EventBus().emit(ComponentSubscribeEvent(component=component_name, topic=topic))
 
-        def handler(data: Payload):
+        async def handler(data: Payload):
             from linksurf.events import (
                 ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
             )
@@ -357,8 +413,6 @@ class Component:
             correlation_id = data.correlation_id
             url = data.url.address
             start_time = time.perf_counter()
-
-            self._execution_correlation_id = correlation_id
 
             if data.retrying:
                 # increment before processing so events reflect the current retry count
@@ -368,7 +422,7 @@ class Component:
                                                 topic=topic, retrying=data.retrying, retries=data.retries))
 
             try:
-                error = callback(data)
+                error = await callback(data)
             except Exception as e:
                 error = Error("Uncaught error.", exception=e, retriable=False, unexpected=True)
 
@@ -389,9 +443,9 @@ class Component:
                     data.retrying = True
 
                     if error.delay_seconds:
-                        self.delayed_publish(self.TOPIC, data, error.delay_seconds)
+                        await self.delayed_publish(self.TOPIC, data, error.delay_seconds)
                     else:
-                        self.publish(self.TOPIC, data)
+                        await self.publish(self.TOPIC, data)
                 else:
                     Logger().warning(
                         "component.discard",
@@ -409,38 +463,102 @@ class Component:
                                      topic=topic, duration_ms=duration_ms,
                                      retrying=data.retrying, retries=data.retries))
 
-        self.broker.subscribe(topic, handler)
+        await self.broker.subscribe(topic, handler, concurrency=concurrency)
 
-    def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
+    async def loop(self, pull: Callable[[], Awaitable[tuple[Payload, Any]]],
+                   callback: Callable[[Payload, ...], Awaitable[Error | None]],
+                   concurrency: int = 1) -> None:
+        if concurrency < 1:
+            raise ValueError("Concurrency must be >= 1.")
+
+        from linksurf.events import (
+            ComponentLoopEvent, ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent
+        )
+
+        component_name = type(self).__name__
+        function_name = callback.__name__
+
+        EventBus().emit(ComponentLoopEvent(component=component_name, function=function_name))
+
+        self._looping = True
+
+        async def handler():
+            while self._looping:
+                try:
+                    payload, *extra = await pull()
+                except Exception:
+                    Logger().exception("component.pull_error", component=component_name, function=function_name)
+
+                    continue
+
+                correlation_id = payload.correlation_id
+                url = payload.url.address
+                start_time = time.perf_counter()
+
+                if payload.retrying:
+                    payload.retries += 1
+
+                task = asyncio.current_task()
+                self._loop_in_flight.add(task)
+
+                EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                    function=function_name, retrying=payload.retrying,
+                                                    retries=payload.retries))
+
+                try:
+                    error = await callback(payload, *extra)
+                except Exception as e:
+                    error = Error("Uncaught error.", exception=e, retriable=False, unexpected=True)
+
+                end_time = time.perf_counter()
+                duration_ms = (end_time - start_time) * 1000
+
+                if error is not None:
+                    EventBus().emit(
+                        ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                            error=error.message,
+                                            retriable=error.retriable,
+                                            retrying=payload.retrying,
+                                            retries=payload.retries,
+                                            unexpected=error.unexpected,
+                                            exception=error.exception))
+                else:
+                    EventBus().emit(
+                        ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                             function=function_name, duration_ms=duration_ms,
+                                             retrying=payload.retrying, retries=payload.retries))
+
+                self._loop_in_flight.discard(task)
+
+        self._loop_tasks = [asyncio.create_task(handler()) for _ in range(concurrency)]
+
+    async def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
         from linksurf.events import ComponentPublishEvent
-
-        correlation_id = self._execution_correlation_id
 
         payloads = data if isinstance(data, list) else [data]
 
         for payload in payloads:
             self._prepare_publish(topic, payload, priority)
 
-            self.broker.publish(topic, payload, payload.priority)
+            await self.broker.publish(topic, payload, payload.priority)
 
         EventBus().emit(ComponentPublishEvent(
-            correlation_id=correlation_id, component=self._component_name, topic=topic,
+            component=self._component_name, topic=topic,
             urls=[(payload.url.address, payload.priority) for payload in payloads],
         ))
 
-    def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int, priority: int | None = None) -> None:
+    async def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int,
+                              priority: int | None = None) -> None:
         from linksurf.events import ComponentPublishEvent
 
         self._prepare_publish(topic, payload, priority)
 
-        correlation_id = self._execution_correlation_id or payload.correlation_id
-
         EventBus().emit(ComponentPublishEvent(
-            correlation_id=correlation_id, component=self._component_name, topic=topic,
+            component=self._component_name, topic=topic,
             urls=[(payload.url.address, payload.priority)], delay=delay_seconds,
         ))
 
-        self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
+        await self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
 
     def _prepare_publish(self, topic: str, payload: Payload, priority: int | None) -> None:
         if priority is not None:

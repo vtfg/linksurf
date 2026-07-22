@@ -1,3 +1,5 @@
+import asyncio
+
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL, MimeType, Link
 from linksurf.common.payload import Payload
@@ -36,19 +38,19 @@ class Parser(Component):
             ExtractorRules(mime_types=[MimeType.HTML], domain="quotes.toscrape.com", path_pattern=r"^/author/"),
         )
 
-    def on_start(self, settings: Settings, services: Services):
-        super().on_start(settings, services)
+    async def on_start(self, settings: Settings, services: Services):
+        await super().on_start(settings, services)
 
         self.blob_storage = services.blob_storage
 
-        self.subscribe(self.TOPIC, self.parse)
+        await self.subscribe(self.TOPIC, self.parse, concurrency=10)
 
-    def parse(self, payload: Payload) -> Error | None:
+    async def parse(self, payload: Payload) -> Error | None:
         if payload.content is None:
             return Error("Payload has no content.", retriable=False)
 
         try:
-            contents = self.blob_storage.download(payload.content.key)
+            contents = await self.blob_storage.download(payload.content.key)
         except Exception as e:
             return Error("Blob download failed.", retriable=True, exception=e)
 
@@ -64,10 +66,10 @@ class Parser(Component):
 
         for entry in matching_extractors:
             try:
-                data = entry.extractor.extract(payload, contents)
+                data = await asyncio.to_thread(entry.extractor.extract, payload, contents)
 
                 if entry.callback:
-                    entry.callback(payload, data)
+                    await entry.callback(payload, data)
             except Exception as e:
                 Logger().warning(
                     "component.warning",
@@ -81,11 +83,11 @@ class Parser(Component):
 
         payload.content.extracted = extracted
 
-        self.publish("url.store", payload)
+        await self.publish("url.store", payload)
 
         return None
 
-    def _filter_and_publish_links(self, payload: Payload, links: list[Link]):
+    async def _filter_and_publish_links(self, payload: Payload, links: list[Link]):
         current_url = payload.url.address
 
         unique_links: set[str] = set()
@@ -98,4 +100,4 @@ class Parser(Component):
 
         links_payloads = [Payload(url=URL(link)) for link in unique_links]
 
-        self.publish("url.process", links_payloads)
+        await self.publish("url.process", links_payloads)

@@ -1,5 +1,5 @@
 from linksurf.broker.base import Broker
-from linksurf.common.payload import Payload
+from linksurf.common.payload import Payload, Status
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
@@ -14,14 +14,16 @@ from linksurf.components.frontier.rules import (
     BlockedDomainsRule,
     BLOCKED_EXTENSIONS,
 )
-from linksurf.logger import Logger
-from linksurf.services import Services
+from linksurf.services import Services, Database
+from linksurf.services.database import URLModel
 
 
 class Frontier(Component):
     TOPIC = "url.process"
 
-    def __init__(self, broker: Broker) -> None:
+    database: Database
+
+    def __init__(self, broker: Broker):
         super().__init__(broker)
 
         self.rules = [
@@ -41,15 +43,15 @@ class Frontier(Component):
         ]
         self.prioritizer = MultiFactorPrioritizer()
 
-    def on_start(self, settings: Settings, services: Services) -> None:
-        super().on_start(settings, services)
+    async def on_start(self, settings: Settings, services: Services) -> None:
+        await super().on_start(settings, services)
 
-        self.subscribe(self.TOPIC, self.process)
+        self.database = services.database
 
-    def process(self, payload: Payload) -> Error | None:
-        # TODO: Handle politeness with back-queues and expose an API or Service to the Downloader
+        await self.subscribe(self.TOPIC, self.process, concurrency=100)
 
-        proceed, error = self.rule(payload)
+    async def process(self, payload: Payload) -> Error | None:
+        proceed, error = await self.rule(payload)
 
         if error is not None:
             return error
@@ -57,7 +59,7 @@ class Frontier(Component):
         if not proceed:
             return None
 
-        seen, error = self.deduplicate(payload)
+        seen, error = await self.deduplicate(payload)
 
         if error is not None:
             return error
@@ -65,31 +67,27 @@ class Frontier(Component):
         if seen:
             return None
 
-        proceed, error = self.filter(payload)
+        proceed, error = await self.filter(payload)
 
         if error is not None:
-            if error.retriable:
-                unregister_error = self.deduplicator.unregister(payload)
-
-                if unregister_error is not None:
-                    Logger().warning(
-                        "component.warning",
-                        message=f"Failed to unregister from deduplicator.",
-                        url=payload.url.address,
-                        error=unregister_error.message,
-                        exception=str(unregister_error.exception) if unregister_error.exception else None,
-                    )
-
             return error
 
         if not proceed:
             return None
 
-        priority, error = self.prioritize(payload)
+        priority, error = await self.prioritize(payload)
 
         if error is not None:
             return error
 
-        self.publish("url.download", payload, priority)
+        payload.priority = priority
+
+        try:
+            data = URLModel.from_payload(payload, status=Status.PENDING)
+
+            await self.database.save_url(data)
+            await self.database.save_domain(payload.url.domain)
+        except Exception as e:
+            return Error("Database write failed.", retriable=True, exception=e)
 
         return None

@@ -1,3 +1,5 @@
+import asyncio
+
 from dotenv import load_dotenv
 
 from linksurf.application import Linksurf, Seed
@@ -7,7 +9,7 @@ from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
 from linksurf.services.cache import RedisCache
 from linksurf.services.database import MongoDatabase
-from linksurf.services.fetcher import RequestsFetcher
+from linksurf.services.fetcher import HTTPXFetcher
 from linksurf.utils.env import get_env
 
 load_dotenv()
@@ -27,7 +29,7 @@ if __name__ == "__main__":
             host=get_env("REDIS_HOST"),
             port=get_env("REDIS_PORT", cast=int),
         ),
-        fetcher=RequestsFetcher(),
+        fetcher=HTTPXFetcher(),
     )
 
     broker = RabbitMQBroker()
@@ -48,4 +50,4 @@ if __name__ == "__main__":
         # ProxyPoolExtension(proxies=list[URL?]) -> manages proxies and returns one before every request
     ]
 
-    linksurf.run(seed)
+    asyncio.run(linksurf.start(seed))

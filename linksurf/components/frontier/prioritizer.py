@@ -18,14 +18,14 @@ class MultiFactorPrioritizer(Prioritizer):
 
     cache: Cache
 
-    def on_start(self, settings, services: Services):
+    async def on_start(self, settings, services: Services):
         self.cache = services.cache
 
-    def execute(self, payload: Payload) -> PrioritizerResponse:
+    async def execute(self, payload: Payload) -> PrioritizerResponse:
         url = payload.url
 
         try:
-            metrics = self.cache.get_domain_metrics(url.domain, url.port)
+            metrics = await self.cache.get_domain_metrics(url.domain, url.port)
         except Exception as e:
             return PrioritizerResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 

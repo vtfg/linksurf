@@ -1,8 +1,12 @@
+import asyncio
+import functools
 import mimetypes
 import re
 import signal
+from asyncio import AbstractEventLoop
 from typing import Self
 
+from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL
 from linksurf.common.payload import Payload
@@ -58,9 +62,10 @@ class Linksurf:
         self.settings = settings
         self.services = services
         self.broker = broker
+        self.back_queue = BackQueue()
 
         self.frontier = Frontier(broker)
-        self.downloader = Downloader(broker)
+        self.downloader = Downloader(broker, self.back_queue)
         self.parser = Parser(broker)
         self.storage = Storage(broker)
 
@@ -72,71 +77,86 @@ class Linksurf:
             )
         ]
 
-    def run(self, seed: Seed) -> None:
+    async def start(self, seed: Seed) -> None:
         for listener in self.listeners:
             for name in listener.EVENTS:
                 EventBus().on(name, listener.handle)
 
         Logger().info("application.start")
 
-        try:
-            self.services.connect(self.settings)
-        except:
-            self.shutdown()
+        def on_signal(sig, loop: AbstractEventLoop):
+            Logger().info("application.shutdown", message="Press Ctrl+C to exit immediately.")
 
-            return
+            self.broker.stop()
+
+            loop.remove_signal_handler(sig)
+
+        loop = asyncio.get_event_loop()
+
+        loop.add_signal_handler(signal.SIGINT, functools.partial(on_signal, signal.SIGINT, loop))
+        loop.add_signal_handler(signal.SIGTERM, functools.partial(on_signal, signal.SIGTERM, loop))
 
         try:
-            self.broker.connect()
+            await self.broker.connect()
         except:
             Logger().exception("broker.error", error="Broker connection failed.")
 
-            self.shutdown()
+            await self.shutdown()
+
+            return
+        else:
+            Logger().info("broker.connect")
+
+        try:
+            await self.services.connect(self.settings)
+        except:
+            await self.shutdown()
 
             return
 
-        Logger().info("broker.connect")
+        try:
+            await self.back_queue.on_start(self.services)
+        except:
+            Logger().exception("back_queue.error", error="Back Queue startup failed.")
+
+            await self.shutdown()
+
+            return
 
         components = [self.frontier, self.downloader, self.parser, self.storage]
 
         for component in components:
-            component.on_start(self.settings, self.services)
+            await component.on_start(self.settings, self.services)
 
         Logger().info("broker.seed", count=len(seed.urls))
 
         for url in seed.urls:
-            self.broker.seed(Frontier.TOPIC, Payload(url=url))
-
-        def on_signal(signum, frame):
-            Logger().info("application.shutdown")
-
-            self.broker.stop()
-
-        signal.signal(signal.SIGINT, on_signal)
-        signal.signal(signal.SIGTERM, on_signal)
+            await self.broker.seed(Frontier.TOPIC, Payload(url=url))
 
         Logger().info("broker.loop")
 
         try:
-            self.broker.loop()
+            await self.broker.loop()
         except Exception:
             Logger().exception("application.crash")
         finally:
-            self.shutdown()
+            await self.shutdown()
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         components = [self.frontier, self.downloader, self.parser, self.storage]
 
         for component in components:
-            component.on_stop()
+            await component.on_stop()
 
         try:
-            self.broker.disconnect()
+            await self.broker.disconnect()
         except:
             Logger().exception("broker.error", error="Broker disconnection failed.")
         else:
             Logger().info("broker.disconnect")
 
-        self.services.disconnect()
+        await self.back_queue.on_stop()
+
+        await self.services.disconnect()
 
         Logger().info("application.stop")

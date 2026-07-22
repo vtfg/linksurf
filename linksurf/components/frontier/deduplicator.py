@@ -7,30 +7,29 @@ from linksurf.services import Cache, Services
 class URLDeduplicator(Deduplicator):
     cache: Cache
 
-    def on_start(self, settings, services: Services):
+    async def on_start(self, settings, services: Services):
         self.cache = services.cache
 
-    def check(self, payload: Payload) -> DeduplicatorCheckResponse:
+    async def check(self, payload: Payload) -> DeduplicatorCheckResponse:
         try:
-            seen = self.cache.is_url_seen(payload.url)
+            seen = await self.cache.is_url_seen(payload.url)
         except Exception as e:
             return DeduplicatorCheckResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
 
         return DeduplicatorCheckResponse(seen, None)
 
-    def register(self, payload: Payload) -> Error | None:
+    async def register(self, payload: Payload) -> Error | None:
         try:
-            self.cache.mark_url_seen(payload.url)
+            await self.cache.mark_url_seen(payload.url)
         except Exception as e:
             return Error("Cache lookup failed.", retriable=True, exception=e)
 
         return None
 
-    def unregister(self, payload: Payload) -> Error | None:
+    async def unregister(self, payload: Payload) -> Error | None:
         try:
-            self.cache.unmark_url_seen(payload.url)
+            await self.cache.unmark_url_seen(payload.url)
         except Exception as e:
             return Error("Cache write failed.", retriable=True, exception=e)
 
         return None
-

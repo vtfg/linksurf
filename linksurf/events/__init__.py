@@ -12,13 +12,21 @@ class ComponentSubscribeEvent:
 
 
 @dataclass
+class ComponentLoopEvent:
+    component: str
+    function: str
+    name: Literal["component.loop"] = field(default="component.loop", init=False)
+
+
+@dataclass
 class ComponentStartEvent:
     correlation_id: str
     url: str
     component: str
-    topic: str
     retrying: bool
     retries: int
+    topic: str | None = None
+    function: str | None = None
     name: Literal["component.start"] = field(default="component.start", init=False)
 
 
@@ -27,10 +35,11 @@ class ComponentFinishEvent:
     correlation_id: str
     url: str
     component: str
-    topic: str
     duration_ms: float
     retrying: bool
     retries: int
+    topic: str | None = None
+    function: str | None = None
     name: Literal["component.finish"] = field(default="component.finish", init=False)
 
 
@@ -50,7 +59,6 @@ class ComponentErrorEvent:
 
 @dataclass
 class ComponentPublishEvent:
-    correlation_id: str
     component: str
     topic: str
     urls: list[tuple[str, int]]  # (address, priority)
@@ -214,7 +222,7 @@ class PrioritizerErrorEvent:
 
 
 Event = Union[
-    ComponentSubscribeEvent,
+    ComponentSubscribeEvent, ComponentLoopEvent,
     ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
     ComponentPublishEvent,
     RuleStartEvent, RuleFinishEvent, RuleErrorEvent,
