@@ -14,14 +14,14 @@ from linksurf.components.parser.extractors import (
     AuthorExtractor,
 )
 from linksurf.logger import Logger
-from linksurf.services import Services
-from linksurf.services.blob import BlobStorage
+from linksurf.services import Services, BlobStorage, Cache
 
 
 class Parser(Component):
     TOPIC = "url.parse"
 
     blob_storage: BlobStorage
+    cache: Cache
 
     def __init__(self, broker: Broker):
         super().__init__(broker)
@@ -88,16 +88,37 @@ class Parser(Component):
         return None
 
     async def _filter_and_publish_links(self, payload: Payload, links: list[Link]):
+        if not isinstance(links, list):
+            return
+
         current_url = payload.url.address
 
         unique_links: set[str] = set()
 
         for link in links:
+            if not isinstance(link, Link):
+                continue
+
             if link.target == current_url:
                 continue
 
-            unique_links.add(link.target)
+            url = URL(link.target)
+
+            try:
+                seen = await self.cache.is_url_seen(url)
+            except Exception as e:
+                Logger().warning(
+                    "component.warning",
+                    message="Failed to check if url is seen.",
+                    exception=str(e),
+                )
+
+                continue
+
+            if not seen:
+                unique_links.add(link.target)
 
         links_payloads = [Payload(url=URL(link)) for link in unique_links]
 
-        await self.publish("url.process", links_payloads)
+        if len(links_payloads) > 0:
+            await self.publish("url.process", links_payloads)
