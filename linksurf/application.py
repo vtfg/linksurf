@@ -64,7 +64,7 @@ class Linksurf:
         self.broker = broker
         self.back_queue = BackQueue()
 
-        self.frontier = Frontier(broker, self.back_queue)
+        self.frontier = Frontier(broker)
         self.downloader = Downloader(broker, self.back_queue)
         self.parser = Parser(broker)
         self.storage = Storage(broker)

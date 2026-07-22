@@ -1,4 +1,3 @@
-from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
 from linksurf.common.payload import Payload, Status
 from linksurf.common.settings import Settings
@@ -24,7 +23,7 @@ class Frontier(Component):
 
     database: Database
 
-    def __init__(self, broker: Broker, back_queue: BackQueue):
+    def __init__(self, broker: Broker):
         super().__init__(broker)
 
         self.rules = [
