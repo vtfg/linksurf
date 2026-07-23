@@ -114,6 +114,13 @@ class Linksurf:
 
             return
 
+        components = [self.frontier, self.downloader, self.parser, self.storage]
+
+        for component in components:
+            await component.on_start(self.settings, self.services)
+
+        await self.seed(seed.urls)
+
         try:
             await self.back_queue.on_start(self.services)
         except:
@@ -122,16 +129,6 @@ class Linksurf:
             await self.shutdown()
 
             return
-
-        components = [self.frontier, self.downloader, self.parser, self.storage]
-
-        for component in components:
-            await component.on_start(self.settings, self.services)
-
-        Logger().info("broker.seed", count=len(seed.urls))
-
-        for url in seed.urls:
-            await self.broker.seed(Frontier.TOPIC, Payload(url=url))
 
         Logger().info("broker.loop")
 
@@ -160,3 +157,17 @@ class Linksurf:
         await self.services.disconnect()
 
         Logger().info("application.stop")
+
+    async def seed(self, urls: list[URL]) -> None:
+        Logger().info("application.seed", count=len(urls))
+
+        for url in urls:
+            payload = Payload(url)
+
+            error = await self.frontier.process(payload)
+
+            if error:
+                Logger().error("application.error", message=f"Unable to seed URL.", url=url.address,
+                               error=error.message)
+
+                continue
