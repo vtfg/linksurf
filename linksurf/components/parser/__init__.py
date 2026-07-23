@@ -1,18 +1,16 @@
 import asyncio
 
 from linksurf.broker.base import Broker
-from linksurf.common.models import URL, MimeType, Link
+from linksurf.common.models import URL, Link
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
 from linksurf.components.parser.extractors import (
     ExtractorsRegistry,
-    ExtractorRules,
-    LinksExtractor,
-    MetadataExtractor,
-    AuthorExtractor,
+    ExtractorRules
 )
+from linksurf.components.parser.extractors.html import MetadataExtractor, LinksExtractor, AuthorExtractor
 from linksurf.logger import Logger
 from linksurf.services import Services, BlobStorage, Cache
 
@@ -27,21 +25,15 @@ class Parser(Component):
         super().__init__(broker)
 
         self.extractors_registry = ExtractorsRegistry()
-        self.extractors_registry.register(MetadataExtractor(), ExtractorRules(mime_types=[MimeType.HTML]))
-        self.extractors_registry.register(
-            LinksExtractor(),
-            ExtractorRules(mime_types=[MimeType.HTML]),
-            callback=self._filter_and_publish_links
-        )
-        self.extractors_registry.register(
-            AuthorExtractor(),
-            ExtractorRules(mime_types=[MimeType.HTML], domain="quotes.toscrape.com", path_pattern=r"^/author/"),
-        )
+        self.extractors_registry.register(MetadataExtractor())
+        self.extractors_registry.register(LinksExtractor(), callback=self._filter_and_publish_links)
+        self.extractors_registry.register(AuthorExtractor())
 
     async def on_start(self, settings: Settings, services: Services):
         await super().on_start(settings, services)
 
         self.blob_storage = services.blob_storage
+        self.cache = services.cache
 
         await self.subscribe(self.TOPIC, self.parse, concurrency=10)
 
