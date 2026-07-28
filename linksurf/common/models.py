@@ -194,3 +194,12 @@ class Country(str, Enum):
 
     BRAZIL = "BR"
     USA = "US"
+
+
+class Language(str, Enum):
+    """
+    ISO 639-1 language codes.
+    """
+
+    PORTUGUESE = "pt"
+    ENGLISH = "en"
