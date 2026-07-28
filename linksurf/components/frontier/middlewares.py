@@ -1,7 +1,7 @@
 import asyncio
 from urllib.robotparser import RobotFileParser
 
-from linksurf.common.models import HTTPRequest, HTTPRequestMetadata, MimeType
+from linksurf.common.models import Country, HTTPRequest, HTTPRequestMetadata, MimeType
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
@@ -10,6 +10,8 @@ from linksurf.services import Services, Fetcher, Cache
 from linksurf.services.cache import ONE_DAY_IN_SECONDS, RobotsRecord
 from linksurf.services.fetcher import MaxRedirectsError
 from linksurf.utils.dns import check_domain_availability
+from linksurf.utils.env import get_env
+from linksurf.utils.geoip import IPInfoClient
 
 # sentinel status code used when robots.txt couldn't be fetched due to a redirect loop
 REDIRECT_LOOP_STATUS_CODE = 0
@@ -20,9 +22,13 @@ class DNSMiddleware(Middleware):
     Queries the website's DNS to check availability and IP.
     """
 
+    proxy: str | None
+
     cache: Cache
 
-    async def on_start(self, settings, services: Services):
+    async def on_start(self, settings: Settings, services: Services):
+        self.proxy = settings.proxy
+
         self.cache = services.cache
 
     async def execute(self, payload: Payload) -> MiddlewareResponse:
@@ -37,7 +43,7 @@ class DNSMiddleware(Middleware):
         if cached:
             available, ip = cached
         else:
-            available, ip = await asyncio.to_thread(check_domain_availability, domain, port)
+            available, ip = await asyncio.to_thread(check_domain_availability, domain, port, proxy=self.proxy)
 
             try:
                 await self.cache.save_domain_status(domain, port, available, ip)
@@ -55,11 +61,54 @@ class DNSMiddleware(Middleware):
 
 class CountryMiddleware(Middleware):
     """
-    Computes the website's guessed country.
+    Guesses a domain's country.
+
+    Checks the domain's TLD first, if inconclusive falls back to geolocating the domain's IP via IPInfo's Lite API.
+    Reuses resolved IP from DNSMiddleware, so this middleware must run after it.
     """
 
+    cache: Cache
+
+    ipinfo: IPInfoClient
+
+    async def on_start(self, settings: Settings, services: Services):
+        self.cache = services.cache
+
+        self.ipinfo = IPInfoClient(services.fetcher, get_env("IPINFO_TOKEN"))
+
     async def execute(self, payload: Payload) -> MiddlewareResponse:
-        raise NotImplementedError()
+        domain = payload.url.domain
+
+        if domain.endswith(".br"):
+            payload.add_metadata("country", Country.BRAZIL.value)
+
+            return MiddlewareResponse(payload, None)
+
+        code: str | None = None
+
+        dns = payload.get_metadata("dns") or {}
+        ip = dns.get("ip")
+
+        if ip is not None:
+            try:
+                found, code = await self.cache.get_domain_country(domain, payload.url.port)
+            except Exception as e:
+                return MiddlewareResponse(None, Error("Cache lookup failed.", retriable=True, exception=e))
+
+            if not found:
+                try:
+                    code = await self.ipinfo.lookup(ip, payload.correlation_id, "Frontier")
+                except Exception as e:
+                    return MiddlewareResponse(None, Error("GeoIP lookup failed.", retriable=True, exception=e))
+
+                try:
+                    await self.cache.save_domain_country(domain, payload.url.port, code)
+                except Exception as e:
+                    return MiddlewareResponse(None, Error("Cache write failed.", retriable=True, exception=e))
+
+        payload.add_metadata("country", code)
+
+        return MiddlewareResponse(payload, None)
 
 
 class RobotsExclusionMiddleware(Middleware):

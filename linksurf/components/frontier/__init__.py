@@ -1,11 +1,12 @@
 from linksurf.broker.base import Broker
+from linksurf.common.models import Country
 from linksurf.common.payload import Payload, Status
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import Component
 from linksurf.components.frontier.deduplicator import URLDeduplicator
-from linksurf.components.frontier.filters import RobotsExclusionFilter
-from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware
+from linksurf.components.frontier.filters import RobotsExclusionFilter, CountryFilter
+from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware, CountryMiddleware
 from linksurf.components.frontier.prioritizer import MultiFactorPrioritizer
 from linksurf.components.frontier.rules import (
     SchemeRule,
@@ -35,10 +36,11 @@ class Frontier(Component):
         self.deduplicator = URLDeduplicator()
         self.middlewares = [
             DNSMiddleware(),
-            # CountryMiddleware(),
+            CountryMiddleware(),
             RobotsExclusionMiddleware(),
         ]
         self.filters = [
+            CountryFilter(allowed=[Country.BRAZIL]),
             RobotsExclusionFilter(),
         ]
         self.prioritizer = MultiFactorPrioritizer()

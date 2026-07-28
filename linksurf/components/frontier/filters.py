@@ -11,7 +11,12 @@ class CountryFilter(Filter):
         self.allowed = allowed
 
     async def execute(self, payload: Payload) -> FilterResponse:
-        country = payload.get_metadata("country")
+        code = payload.get_metadata("country")
+
+        try:
+            country = Country(code)
+        except ValueError:
+            country = None
 
         if country not in self.allowed:
             return FilterResponse(False, None)

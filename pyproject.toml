@@ -8,7 +8,7 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "httpx (>=0.28.1,<0.29.0)",
+    "httpx[socks] (>=0.28.1,<0.29.0)",
     "python-dotenv (>=1.2.1,<2.0.0)",
     "beautifulsoup4 (>=4.14.3,<5.0.0)",
     "pymongo (>=4.17.0,<5.0.0)",
@@ -19,6 +19,7 @@ dependencies = [
     "rich (>=15.0.0,<16.0.0)",
     "logtail-python (>=0.4.0,<0.5.0)",
     "aio-pika (>=9.6.2,<10.0.0)",
+    "pysocks (>=1.7.1,<2.0.0)",
 ]
 
 

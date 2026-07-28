@@ -14,6 +14,7 @@ _DOMAIN_KEY_PREFIX = "linksurf:domain:"
 _DOMAIN_STATUS_SUFFIX = ":status"
 _DOMAIN_METRICS_SUFFIX = ":metrics"
 _DOMAIN_ROBOTS_SUFFIX = ":robots"
+_DOMAIN_COUNTRY_SUFFIX = ":country"
 _DOMAIN_STATUS_TTL = ONE_DAY_IN_SECONDS
 _URL_SEEN_CACHE_KEY = "linksurf:seen"
 _ROBOTS_CACHE_TTL = ONE_DAY_IN_SECONDS
@@ -37,10 +38,10 @@ class RobotsRecord:
 class Cache(Service):
     NAME = "cache"
 
-    async def save_domain_status(self, domain: str, port: int, available: bool, ip: str) -> None:
+    async def save_domain_status(self, domain: str, port: int, available: bool, ip: str | None) -> None:
         raise NotImplementedError()
 
-    async def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str] | None:
+    async def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str | None] | None:
         raise NotImplementedError()
 
     async def save_domain_robots_txt(self, domain: str, port: int, status_code: int, content_type: str | None,
@@ -71,6 +72,12 @@ class Cache(Service):
     async def update_domain_metrics(self, domain: str, port: int, response_ms: float, content_size: int) -> None:
         raise NotImplementedError()
 
+    async def save_domain_country(self, domain: str, port: int, code: str | None) -> None:
+        raise NotImplementedError()
+
+    async def get_domain_country(self, domain: str, port: int) -> Tuple[bool, str | None]:
+        raise NotImplementedError()
+
 
 class RedisCache(Cache):
     def __init__(self, host: str, port: int, db: int = 0):
@@ -91,16 +98,16 @@ class RedisCache(Cache):
             await self._client.close()
             self._client = None
 
-    async def save_domain_status(self, domain: str, port: int, available: bool, ip: str) -> None:
+    async def save_domain_status(self, domain: str, port: int, available: bool, ip: str | None) -> None:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
         key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_STATUS_SUFFIX}"
 
-        await self._client.hset(key, mapping={"available": int(available), "ip": ip})
+        await self._client.hset(key, mapping={"available": int(available), "ip": ip or ""})
         await self._client.expire(key, _DOMAIN_STATUS_TTL)
 
-    async def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str] | None:
+    async def get_domain_status(self, domain: str, port: int) -> Tuple[bool, str | None] | None:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
@@ -109,7 +116,7 @@ class RedisCache(Cache):
         cached = await self._client.hgetall(key)
 
         if cached:
-            return cached.get("available") == "1", cached.get("ip")
+            return cached.get("available") == "1", (cached.get("ip") or None)
 
         return None
 
@@ -220,3 +227,25 @@ class RedisCache(Cache):
             "avg_response_ms": avg_response_ms,
             "avg_content_size": avg_content_size,
         })
+
+    async def save_domain_country(self, domain: str, port: int, code: str | None) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
+        key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_COUNTRY_SUFFIX}"
+
+        await self._client.hset(key, mapping={"code": code or ""})
+        await self._client.expire(key, _DOMAIN_STATUS_TTL)
+
+    async def get_domain_country(self, domain: str, port: int) -> Tuple[bool, str | None]:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
+        key = f"{_DOMAIN_KEY_PREFIX}{domain}@{port}{_DOMAIN_COUNTRY_SUFFIX}"
+
+        cached = await self._client.hgetall(key)
+
+        if cached:
+            return True, (cached.get("code") or None)
+
+        return False, None
