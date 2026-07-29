@@ -126,7 +126,7 @@ class HTTPXFetcher(Fetcher):
 
             EventBus().emit(RequestEvent(
                 scheme=scheme, url=request.url, method=request.method,
-                duration_ms=duration_ms, error=error, exception=exception_path,
+                duration_ms=duration_ms, error=error, exception_type=exception_path,
                 correlation_id=request.metadata.correlation_id, component=request.metadata.component,
             ))
 

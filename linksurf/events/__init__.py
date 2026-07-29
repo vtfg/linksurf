@@ -231,7 +231,7 @@ class RequestEvent:
     duration_ms: float
     status_code: int | None = None
     error: str | None = None
-    exception: str | None = None  # exception type path ("linksurf.services.fetcher.ReadTimeoutError", for example)
+    exception_type: str | None = None  # exception type path ("linksurf.services.fetcher.ReadTimeoutError", for example)
     name: Literal["request"] = field(default="request", init=False)
 
 
