@@ -61,29 +61,6 @@ class MetadataExtractor(Extractor):
         }
 
 
-class AuthorExtractor(Extractor):
-    NAME = "author"
-    RULES = ExtractorRules(mime_types=[MimeType.HTML], domain="quotes.toscrape.com", path_pattern=r"^/author/")
-
-    def extract(self, payload: Payload, contents: bytes) -> dict[str, str | None]:
-        if payload.response is None:
-            raise Exception("Payload doesn't contain a response.")
-
-        html = contents.decode(payload.response.encoding)
-
-        soup = BeautifulSoup(html, "html.parser")
-
-        details = soup.select_one(".author-details")
-
-        name_tag = details.select_one(".author-title") if details else None
-        description_tag = details.select_one(".author-description") if details else None
-
-        name = name_tag.get_text(strip=True) if name_tag else None
-        description = description_tag.get_text(strip=True) if description_tag else None
-
-        return {"name": name, "description": description}
-
-
 class LinksExtractor(Extractor):
     NAME = "links"
     RULES = ExtractorRules(mime_types=[MimeType.HTML])
@@ -139,3 +116,43 @@ class LinksExtractor(Extractor):
             ))
 
         return links
+
+
+class TextExtractor(Extractor):
+    NAME = "text"
+    RULES = ExtractorRules(mime_types=[MimeType.HTML])
+
+    def extract(self, payload: Payload, contents: bytes) -> str:
+        html = contents.decode(payload.response.encoding)
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        for tag in soup(["script", "style", "head", "title"]):
+            tag.decompose()
+
+        text = soup.get_text(separator="\n", strip=True)
+
+        return text
+
+
+class AuthorExtractor(Extractor):
+    NAME = "author"
+    RULES = ExtractorRules(mime_types=[MimeType.HTML], domain="quotes.toscrape.com", path_pattern=r"^/author/")
+
+    def extract(self, payload: Payload, contents: bytes) -> dict[str, str | None]:
+        if payload.response is None:
+            raise Exception("Payload doesn't contain a response.")
+
+        html = contents.decode(payload.response.encoding)
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        details = soup.select_one(".author-details")
+
+        name_tag = details.select_one(".author-title") if details else None
+        description_tag = details.select_one(".author-description") if details else None
+
+        name = name_tag.get_text(strip=True) if name_tag else None
+        description = description_tag.get_text(strip=True) if description_tag else None
+
+        return {"name": name, "description": description}

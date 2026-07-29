@@ -187,12 +187,19 @@ class Content:
     extracted: dict[str, dict[str, Any] | list[Any]] | None = None
 
 
-class Country:
+class Country(str, Enum):
     """
-    Basic data class of ISO 3166-1's elements.
+    ISO 3166-1 alpha-2 country codes.
     """
 
-    def __init__(self, alpha_2_code: str, alpha_3_code: str, numeric_code: str):
-        self.alpha_2_code = alpha_2_code
-        self.alpha_3_code = alpha_3_code
-        self.numeric_code = numeric_code
+    BRAZIL = "BR"
+    USA = "US"
+
+
+class Language(str, Enum):
+    """
+    ISO 639-1 language codes.
+    """
+
+    PORTUGUESE = "pt"
+    ENGLISH = "en"

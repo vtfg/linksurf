@@ -22,6 +22,11 @@ class DomainStatus(StrEnum):
 
 
 @dataclass
+class DomainMetrics:
+    languages: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class DomainModel:
     domain: str
     status: DomainStatus = DomainStatus.ACTIVE
@@ -30,6 +35,7 @@ class DomainModel:
     blocked_at: datetime | None = None
     blocked_reason: str | None = None
     last_locked_at: datetime | None = None
+    metrics: DomainMetrics = field(default_factory=DomainMetrics)
 
 
 @dataclass
@@ -122,6 +128,16 @@ class Database(Service):
     async def unlock_domain(self, domain: str) -> None:
         """
         Resets a domain's consecutive lock count back to zero after a non-locking request.
+        """
+
+        raise NotImplementedError()
+
+    async def record_language(self, domain: str, language: str, allowed: bool,
+                              threshold: int = 5) -> DomainStatus | None:
+        """
+        Increments the domain's page count for a language.
+        
+        Blocks the domain if language isn't allowed and its count reaches the defined threshold.
         """
 
         raise NotImplementedError()
@@ -279,3 +295,34 @@ class MongoDatabase(Database):
             {"domain": domain, "lock_count": {"$gt": 0}},
             {"$set": {"status": DomainStatus.ACTIVE.value, "lock_count": 0, "locked_until": None}},
         )
+
+    async def record_language(self, domain: str, language: str, allowed: bool,
+                              threshold: int = 5) -> None:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
+        result = await self._database["domains"].find_one_and_update(
+            {"domain": domain},
+            {"$inc": {f"metrics.languages.{language}": 1}},
+            upsert=True,
+            return_document=True,
+        )
+
+        if allowed:
+            return None
+
+        count = result["metrics"]["languages"][language]
+
+        if count < threshold:
+            return None
+
+        await self._database["domains"].update_one(
+            {"domain": domain},
+            {"$set": {
+                "status": DomainStatus.BLOCKED.value,
+                "blocked_at": datetime.now(timezone.utc),
+                "blocked_reason": f"Found {count} pages for disallowed language ({language}).",
+            }},
+        )
+
+        return None

@@ -1,7 +1,7 @@
 import asyncio
 
 from linksurf.broker.base import Broker
-from linksurf.common.models import URL, Link
+from linksurf.common.models import URL, Language, Link
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
@@ -10,7 +10,9 @@ from linksurf.components.parser.extractors import (
     ExtractorsRegistry,
     ExtractorRules
 )
-from linksurf.components.parser.extractors.html import MetadataExtractor, LinksExtractor, AuthorExtractor
+from linksurf.components.parser.extractors.html import MetadataExtractor, LinksExtractor, AuthorExtractor, TextExtractor
+from linksurf.components.parser.filters import LanguageFilter
+from linksurf.components.parser.middlewares import LanguageMiddleware
 from linksurf.logger import Logger
 from linksurf.services import Services, BlobStorage, Cache
 
@@ -24,10 +26,18 @@ class Parser(Component):
     def __init__(self, broker: Broker):
         super().__init__(broker)
 
+        self.middlewares = [
+            LanguageMiddleware(),
+        ]
+        self.filters = [
+            LanguageFilter(allowed=[Language.PORTUGUESE]),
+        ]
+
         self.extractors_registry = ExtractorsRegistry()
         self.extractors_registry.register(MetadataExtractor())
         self.extractors_registry.register(LinksExtractor(), callback=self._filter_and_publish_links)
         self.extractors_registry.register(AuthorExtractor())
+        self.extractors_registry.register(TextExtractor())
 
     async def on_start(self, settings: Settings, services: Services):
         await super().on_start(settings, services)
@@ -72,6 +82,20 @@ class Parser(Component):
                 continue
 
             extracted[entry.extractor.NAME] = data
+
+        payload.content.extracted = extracted
+
+        proceed, error = await self.filter(payload)
+
+        if error is not None:
+            return error
+
+        if not proceed:
+            return None
+
+        # currently the extracted text is only used for language filtering
+        # no point in saving to the database
+        extracted.pop("text", None)
 
         payload.content.extracted = extracted
 
