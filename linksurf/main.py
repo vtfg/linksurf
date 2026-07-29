@@ -32,7 +32,7 @@ if __name__ == "__main__":
         fetcher=HTTPXFetcher(),
     )
 
-    broker = RabbitMQBroker()
+    broker = RabbitMQBroker(host=get_env("RABBITMQ_HOST"), port=get_env("RABBITMQ_PORT", cast=int))
 
     settings = Settings(
         identifier="Linksurf",
