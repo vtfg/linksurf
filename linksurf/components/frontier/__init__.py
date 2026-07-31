@@ -3,7 +3,7 @@ from linksurf.common.models import Country
 from linksurf.common.payload import Payload, Status
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
-from linksurf.components.base import Component
+from linksurf.components.base import ConsumerComponent
 from linksurf.components.frontier.deduplicator import URLDeduplicator
 from linksurf.components.frontier.filters import RobotsExclusionFilter, CountryFilter
 from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware, CountryMiddleware
@@ -19,7 +19,8 @@ from linksurf.services import Services, Database
 from linksurf.services.database import URLModel
 
 
-class Frontier(Component):
+class Frontier(ConsumerComponent):
+    NAME = "Frontier"
     TOPIC = "url.process"
 
     database: Database

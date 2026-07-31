@@ -8,15 +8,15 @@ from linksurf.common.models import HTTPRequest, HTTPRequestMetadata, MimeType, R
 from linksurf.common.payload import Content, Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
-from linksurf.components.base import Component
+from linksurf.components.base import LooperComponent
 from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
 from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware
 from linksurf.services import Services, Fetcher, BlobStorage, Cache
 from linksurf.services.fetcher import MaxRedirectsError
 
 
-class Downloader(Component):
-    TOPIC = "url.download"
+class Downloader(LooperComponent):
+    NAME = "Downloader"
 
     back_queue: BackQueue
 

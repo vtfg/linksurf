@@ -92,7 +92,14 @@ class Deduplicator:
 
 
 class Component:
-    TOPIC: str
+    """
+    Base class for the pipeline component.
+
+    Defines functions for executing rules, deduplicators, middlewares, filters and prioritizers.
+    Emits all base events automatically.
+    """
+
+    NAME: str
 
     def __init__(self, broker: Broker) -> None:
         self.broker = broker
@@ -103,10 +110,8 @@ class Component:
         self.filters: list[Filter] = []
         self.prioritizer: Prioritizer | None = None
 
-        self._component_name = type(self).__name__
-        self._looping = False
-        self._loop_tasks: list[asyncio.Task] = []
-        self._loop_in_flight: set[asyncio.Task] = set()
+        if self.NAME is None:
+            self.NAME = type(self).__name__
 
     async def on_start(self, settings: Settings, services: Services):
         for rule in self.rules:
@@ -125,17 +130,6 @@ class Component:
             await self.prioritizer.on_start(settings, services)
 
     async def on_stop(self):
-        self._looping = False
-
-        if self._loop_in_flight:
-            Logger().warning("component.draining", component=self._component_name,
-                             pending=len(self._loop_in_flight))
-
-            await asyncio.gather(*self._loop_in_flight, return_exceptions=True)
-
-        self._loop_tasks = []
-        self._loop_in_flight = set()
-
         for rule in self.rules:
             await rule.on_stop()
 
@@ -200,7 +194,7 @@ class Component:
         if payload.deduplicated:
             # this payload was already deduplicated once; re-checking would only block its own retry
 
-            Logger().debug("component.debug", component=self._component_name,
+            Logger().debug("component.debug", component=self.NAME,
                            url=payload.url.address, message="Bypassing deduplication.")
 
             return False, None
@@ -394,6 +388,54 @@ class Component:
 
         return response.data, None
 
+    async def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
+        from linksurf.events import ComponentPublishEvent
+
+        payloads = data if isinstance(data, list) else [data]
+
+        for payload in payloads:
+            self._prepare_publish(topic, payload, priority)
+
+            await self.broker.publish(topic, payload, payload.priority)
+
+        EventBus().emit(ComponentPublishEvent(
+            component=self.NAME, topic=topic,
+            urls=[(payload.url.address, payload.priority) for payload in payloads],
+        ))
+
+    async def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int,
+                              priority: int | None = None) -> None:
+        from linksurf.events import ComponentPublishEvent
+
+        self._prepare_publish(topic, payload, priority)
+
+        EventBus().emit(ComponentPublishEvent(
+            component=self.NAME, topic=topic,
+            urls=[(payload.url.address, payload.priority)], delay=delay_seconds,
+        ))
+
+        await self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
+
+    def _prepare_publish(self, topic: str, payload: Payload, priority: int | None) -> None:
+        if priority is not None:
+            payload.priority = priority
+
+        own_topic = getattr(self, "TOPIC", None)
+
+        if own_topic is None or topic != own_topic:
+            payload.retrying = False
+            payload.retries = 0
+        else:
+            payload.priority = max(MIN_QUEUE_PRIORITY, payload.priority - 1)
+
+
+class ConsumerComponent(Component):
+    """
+    A component that consumes from the defined Broker topic and processes Payloads from it.
+    """
+
+    TOPIC: str
+
     async def subscribe(self, topic: str, callback: Callable[[Payload], Awaitable[Error | None]],
                         concurrency: int = 1) -> None:
         if concurrency < 1:
@@ -465,6 +507,35 @@ class Component:
 
         await self.broker.subscribe(topic, handler, concurrency=concurrency)
 
+
+class LooperComponent(Component):
+    """
+    A component that loops a defined callback indefinitely.
+
+    Requires a `pull` function, which is responsible for gathering Payloads to process.
+    """
+
+    def __init__(self, broker: Broker) -> None:
+        super().__init__(broker)
+
+        self._looping = False
+        self._loop_tasks: list[asyncio.Task] = []
+        self._loop_in_flight: set[asyncio.Task] = set()
+
+    async def on_stop(self) -> None:
+        self._looping = False
+
+        if self._loop_in_flight:
+            Logger().warning("component.draining", component=self.NAME,
+                             pending=len(self._loop_in_flight))
+
+            await asyncio.gather(*self._loop_in_flight, return_exceptions=True)
+
+        self._loop_tasks = []
+        self._loop_in_flight = set()
+
+        await super().on_stop()
+
     async def loop(self, pull: Callable[[], Awaitable[tuple[Payload, Any]]],
                    callback: Callable[[Payload, ...], Awaitable[Error | None]],
                    concurrency: int = 1) -> None:
@@ -532,40 +603,14 @@ class Component:
 
         self._loop_tasks = [asyncio.create_task(handler()) for _ in range(concurrency)]
 
-    async def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
-        from linksurf.events import ComponentPublishEvent
 
-        payloads = data if isinstance(data, list) else [data]
+class SchedulerComponent(Component):
+    """
+    This type of component executes a callback from time to time, respecting a CRON expression.
+    Doesn't receive Payloads for processing, but may gather and publish to consumer components.
 
-        for payload in payloads:
-            self._prepare_publish(topic, payload, priority)
+    Can be useful for background data analysis or re-crawl scheduling (the intended use).
+    """
 
-            await self.broker.publish(topic, payload, payload.priority)
-
-        EventBus().emit(ComponentPublishEvent(
-            component=self._component_name, topic=topic,
-            urls=[(payload.url.address, payload.priority) for payload in payloads],
-        ))
-
-    async def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int,
-                              priority: int | None = None) -> None:
-        from linksurf.events import ComponentPublishEvent
-
-        self._prepare_publish(topic, payload, priority)
-
-        EventBus().emit(ComponentPublishEvent(
-            component=self._component_name, topic=topic,
-            urls=[(payload.url.address, payload.priority)], delay=delay_seconds,
-        ))
-
-        await self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
-
-    def _prepare_publish(self, topic: str, payload: Payload, priority: int | None) -> None:
-        if priority is not None:
-            payload.priority = priority
-
-        if topic != self.TOPIC:
-            payload.retrying = False
-            payload.retries = 0
-        else:
-            payload.priority = max(MIN_QUEUE_PRIORITY, payload.priority - 1)
+    async def schedule(self, cron: str, callback: Callable[[], Awaitable]):
+        raise NotImplementedError()

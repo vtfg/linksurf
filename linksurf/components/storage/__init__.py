@@ -3,14 +3,15 @@ from linksurf.common.models import URL
 from linksurf.common.payload import Payload, Status
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
-from linksurf.components.base import Component
+from linksurf.components.base import ConsumerComponent
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.cache import Cache
 from linksurf.services.database import Database, URLModel
 
 
-class Storage(Component):
+class Storage(ConsumerComponent):
+    NAME = "Storage"
     TOPIC = "url.store"
 
     database: Database
