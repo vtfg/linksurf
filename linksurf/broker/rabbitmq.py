@@ -93,34 +93,6 @@ class RabbitMQBroker(Broker):
             routing_key=topic,
         )
 
-    async def delayed_publish(self, topic: str, data: Any, delay_seconds: int, priority: int = MIN_QUEUE_PRIORITY):
-        delay_queue = f"{topic}.delay.{delay_seconds}"
-
-        queue = await self.channel.declare_queue(
-            name=delay_queue,
-            durable=True,
-            arguments={
-                "x-message-ttl": delay_seconds * 1000,
-                "x-dead-letter-exchange": EXCHANGE,
-                "x-dead-letter-routing-key": topic,
-            },
-        )
-        
-        await queue.bind(exchange=EXCHANGE, routing_key=delay_queue)
-
-        exchange = await self.channel.get_exchange(EXCHANGE)
-
-        await exchange.publish(
-            aio_pika.Message(
-                body=json.dumps(data.to_dict()).encode(),
-                content_type="application/json",
-                content_encoding="utf-8",
-                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-                priority=priority,
-            ),
-            routing_key=delay_queue,
-        )
-
     async def loop(self):
         # every queue is already being consumed at this point (subscribe() was called
         # once per component before this); this just blocks the coroutine open

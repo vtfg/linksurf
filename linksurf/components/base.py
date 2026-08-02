@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Any, Callable, NamedTuple, Awaitable
 
 from linksurf.broker.base import Broker
-from linksurf.common.constants import MIN_QUEUE_PRIORITY
 from linksurf.common.models import ComponentExecution, CrawlStatus
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
@@ -394,45 +393,18 @@ class Component:
 
         return response.data, None
 
-    async def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
+    async def publish(self, topic: str, data: Payload | list[Payload]) -> None:
         from linksurf.events import ComponentPublishEvent
 
         payloads = data if isinstance(data, list) else [data]
 
         for payload in payloads:
-            self._prepare_publish(topic, payload, priority)
-
             await self.broker.publish(topic, payload, payload.priority)
 
         EventBus().emit(ComponentPublishEvent(
             component=self.NAME, topic=topic,
             urls=[(payload.url.address, payload.priority) for payload in payloads],
         ))
-
-    async def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int,
-                              priority: int | None = None) -> None:
-        from linksurf.events import ComponentPublishEvent
-
-        self._prepare_publish(topic, payload, priority)
-
-        EventBus().emit(ComponentPublishEvent(
-            component=self.NAME, topic=topic,
-            urls=[(payload.url.address, payload.priority)], delay=delay_seconds,
-        ))
-
-        await self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
-
-    def _prepare_publish(self, topic: str, payload: Payload, priority: int | None) -> None:
-        if priority is not None:
-            payload.priority = priority
-
-        own_topic = getattr(self, "TOPIC", None)
-
-        if own_topic is None or topic != own_topic:
-            payload.retrying = False
-            payload.retries = 0
-        else:
-            payload.priority = max(MIN_QUEUE_PRIORITY, payload.priority - 1)
 
     async def _save_execution(self, payload: Payload, execution: ComponentExecution, error: Error | None) -> None:
         """
