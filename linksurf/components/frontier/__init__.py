@@ -1,6 +1,6 @@
 from linksurf.broker.base import Broker
 from linksurf.common.models import Country
-from linksurf.common.payload import Payload, Status
+from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import ConsumerComponent
@@ -85,10 +85,17 @@ class Frontier(ConsumerComponent):
 
         payload.priority = priority
 
-        try:
-            data = URLModel.from_payload(payload, status=Status.PENDING)
+        url = URLModel(
+            address=payload.url.address,
+            hash=payload.url.hash,
+            domain=payload.url.domain,
+            priority=payload.priority or 0,
+            correlation_id=payload.correlation_id,
+            discovered_at=payload.discovered_at,
+        )
 
-            await self.database.save_url(data)
+        try:
+            await self.database.register_url(url)
             await self.database.save_domain(payload.url.domain)
         except Exception as e:
             return Error("Database write failed.", retriable=True, exception=e)

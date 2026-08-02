@@ -1,17 +1,25 @@
 from asyncio import Lock
-from datetime import datetime, timezone
 
 from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
 from linksurf.common.constants import MAX_REDIRECT_DEPTH, TEN_MEGABYTES_IN_BYTES
-from linksurf.common.models import HTTPRequest, HTTPRequestMetadata, MimeType, Redirect, URL, HTTPResponse
+from linksurf.common.models import (
+    Crawl,
+    HTTPRequest,
+    HTTPRequestMetadata,
+    MimeType,
+    Redirect,
+    CrawlStatus,
+    URL,
+    HTTPResponse,
+)
 from linksurf.common.payload import Content, Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import LooperComponent
 from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
 from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware
-from linksurf.services import Services, Fetcher, BlobStorage, Cache
+from linksurf.services import Services, Fetcher, BlobStorage, Cache, Database
 from linksurf.services.fetcher import MaxRedirectsError
 
 
@@ -20,6 +28,7 @@ class Downloader(LooperComponent):
 
     back_queue: BackQueue
 
+    database: Database
     blob_storage: BlobStorage
     cache: Cache
     fetcher: Fetcher
@@ -41,6 +50,7 @@ class Downloader(LooperComponent):
     async def on_start(self, settings: Settings, services: Services):
         await super().on_start(settings, services)
 
+        self.database = services.database
         self.blob_storage = services.blob_storage
         self.cache = services.cache
         self.fetcher = services.fetcher
@@ -48,6 +58,16 @@ class Downloader(LooperComponent):
         await self.loop(self.back_queue.next, self.download, concurrency=20)
 
     async def download(self, payload: Payload, lock: Lock) -> Error | None:
+        if payload.crawl_id is None:
+            crawl = Crawl(status=CrawlStatus.IN_PROGRESS)
+
+            try:
+                await self.database.start_crawl(payload.url.hash, crawl)
+            except Exception as e:
+                return Error("Database write failed.", retriable=True, exception=e)
+
+            payload.crawl_id = crawl.id
+
         async with lock:
             request = HTTPRequest(url=payload.url.address, follow_redirects=True,
                                   metadata=HTTPRequestMetadata(correlation_id=payload.correlation_id,
@@ -93,7 +113,6 @@ class Downloader(LooperComponent):
 
         payload.url = final_url
         payload.response = response.to_summary()
-        payload.fetched_at = datetime.now(timezone.utc)
 
         proceed, error = await self.filter(payload)
 
@@ -118,6 +137,8 @@ class Downloader(LooperComponent):
 
         payload.content = Content(key=key, type=mime_type)
         payload.request = request.to_summary()
+
+        payload.published = True
 
         await self.publish("url.parse", payload)
 

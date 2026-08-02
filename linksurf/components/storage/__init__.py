@@ -1,13 +1,13 @@
 from linksurf.broker.base import Broker
 from linksurf.common.models import URL
-from linksurf.common.payload import Payload, Status
+from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import ConsumerComponent
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.services.cache import Cache
-from linksurf.services.database import Database, URLModel
+from linksurf.services.database import Database
 
 
 class Storage(ConsumerComponent):
@@ -35,15 +35,6 @@ class Storage(ConsumerComponent):
     async def store(self, payload: Payload) -> Error | None:
         if payload.content is None or payload.response is None:
             return Error("Payload has no content or response.", retriable=False)
-
-        data = URLModel.from_payload(payload, status=Status.FINISHED)
-
-        try:
-            storage_id = await self.database.save_url(data)
-        except Exception as e:
-            return Error("Database write failed.", retriable=True, exception=e)
-
-        payload.storage_id = storage_id
 
         try:
             await self.cache.update_domain_metrics(

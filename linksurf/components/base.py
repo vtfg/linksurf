@@ -1,16 +1,18 @@
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable, NamedTuple, Awaitable
 
 from linksurf.broker.base import Broker
-from linksurf.common.constants import MAX_RETRIES, MIN_QUEUE_PRIORITY
+from linksurf.common.constants import MIN_QUEUE_PRIORITY
+from linksurf.common.models import ComponentExecution, CrawlStatus
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.events.bus import EventBus
 from linksurf.logger import Logger
-from linksurf.services import Services
+from linksurf.services import Services, Database
 
 
 class Executor:
@@ -101,6 +103,8 @@ class Component:
 
     NAME: str
 
+    database: Database
+
     def __init__(self, broker: Broker) -> None:
         self.broker = broker
 
@@ -114,6 +118,8 @@ class Component:
             self.NAME = type(self).__name__
 
     async def on_start(self, settings: Settings, services: Services):
+        self.database = services.database
+
         for rule in self.rules:
             await rule.on_start(settings, services)
 
@@ -428,6 +434,57 @@ class Component:
         else:
             payload.priority = max(MIN_QUEUE_PRIORITY, payload.priority - 1)
 
+    async def _save_execution(self, payload: Payload, execution: ComponentExecution, error: Error | None) -> None:
+        """
+        Saves this component's execution into the payload's current crawl entry.
+
+        A crawl is only created inside the Downloader, so the Frontier's execution details is discarded.
+        """
+
+        if error is not None:
+            execution.error = error.message
+            execution.retriable = error.retriable
+
+            if error.exception is not None:
+                exception_type = type(error.exception)
+                execution.exception = f"{exception_type.__module__}.{exception_type.__qualname__}"
+
+        if payload.crawl_id is None:
+            return
+
+        fields: dict[str, Any] = {"finished_at": execution.finished_at}
+
+        if payload.request is not None:
+            fields["request"] = asdict(payload.request)
+        if payload.response is not None:
+            fields["response"] = asdict(payload.response)
+        if payload.content is not None:
+            fields["content"] = asdict(payload.content)
+        if payload.redirects:
+            fields["redirects"] = [asdict(redirect) for redirect in payload.redirects]
+
+        metadata = {key: value for key, value in payload.metadata.items() if key != "links"}
+
+        if metadata:
+            fields["metadata"] = metadata
+
+        # no error and not published onward -> crawl attempt is over
+        # either by completion (last stage) or skipped due to a filter or deduplicator
+        if error is not None:
+            status = CrawlStatus.ERRORED
+        elif payload.published:
+            status = CrawlStatus.IN_PROGRESS
+        else:
+            status = CrawlStatus.FINISHED
+
+        fields["status"] = status.value
+
+        try:
+            await self.database.update_crawl(payload.crawl_id, execution, fields)
+        except Exception as e:
+            Logger().error("component.error", component=self.NAME, message="Failed to save crawl execution.",
+                           exception=str(e))
+
 
 class ConsumerComponent(Component):
     """
@@ -454,6 +511,7 @@ class ConsumerComponent(Component):
 
             correlation_id = data.correlation_id
             url = data.url.address
+            started_at = datetime.now(timezone.utc)
             start_time = time.perf_counter()
 
             if data.retrying:
@@ -470,6 +528,18 @@ class ConsumerComponent(Component):
 
             end_time = time.perf_counter()
             duration_ms = (end_time - start_time) * 1000
+            finished_at = datetime.now(timezone.utc)
+
+            execution = ComponentExecution(
+                component=self.NAME,
+                rules=[type(rule).__name__ for rule in self.rules],
+                deduplicator=type(self.deduplicator).__name__ if self.deduplicator else None,
+                middlewares=[type(middleware).__name__ for middleware in self.middlewares],
+                filters=[type(filter).__name__ for filter in self.filters],
+                retries=data.retries,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
 
             if error is not None:
                 EventBus().emit(
@@ -480,30 +550,13 @@ class ConsumerComponent(Component):
                                         retries=data.retries,
                                         unexpected=error.unexpected,
                                         exception=error.exception))
+            else:
+                EventBus().emit(
+                    ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                         topic=topic, duration_ms=duration_ms,
+                                         retrying=data.retrying, retries=data.retries))
 
-                if error.retriable and data.retries < MAX_RETRIES:
-                    data.retrying = True
-
-                    if error.delay_seconds:
-                        await self.delayed_publish(self.TOPIC, data, error.delay_seconds)
-                    else:
-                        await self.publish(self.TOPIC, data)
-                else:
-                    Logger().warning(
-                        "component.discard",
-                        url=data.url.address,
-                        topic=self.TOPIC,
-                        retries=data.retries,
-                        reason=error.message,
-                        retriable=error.retriable,
-                    )
-
-                return
-
-            EventBus().emit(
-                ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                     topic=topic, duration_ms=duration_ms,
-                                     retrying=data.retrying, retries=data.retries))
+            await self._save_execution(data, execution, error)
 
         await self.broker.subscribe(topic, handler, concurrency=concurrency)
 
@@ -526,8 +579,7 @@ class LooperComponent(Component):
         self._looping = False
 
         if self._loop_in_flight:
-            Logger().warning("component.draining", component=self.NAME,
-                             pending=len(self._loop_in_flight))
+            Logger().warning("component.draining", component=self.NAME, pending=len(self._loop_in_flight))
 
             await asyncio.gather(*self._loop_in_flight, return_exceptions=True)
 
@@ -564,6 +616,7 @@ class LooperComponent(Component):
 
                 correlation_id = payload.correlation_id
                 url = payload.url.address
+                started_at = datetime.now(timezone.utc)
                 start_time = time.perf_counter()
 
                 if payload.retrying:
@@ -583,6 +636,18 @@ class LooperComponent(Component):
 
                 end_time = time.perf_counter()
                 duration_ms = (end_time - start_time) * 1000
+                finished_at = datetime.now(timezone.utc)
+
+                execution = ComponentExecution(
+                    component=self.NAME,
+                    rules=[type(rule).__name__ for rule in self.rules],
+                    deduplicator=type(self.deduplicator).__name__ if self.deduplicator else None,
+                    middlewares=[type(middleware).__name__ for middleware in self.middlewares],
+                    filters=[type(filter).__name__ for filter in self.filters],
+                    retries=payload.retries,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                )
 
                 if error is not None:
                     EventBus().emit(
@@ -598,6 +663,8 @@ class LooperComponent(Component):
                         ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                              function=function_name, duration_ms=duration_ms,
                                              retrying=payload.retrying, retries=payload.retries))
+
+                await self._save_execution(payload, execution, error)
 
                 self._loop_in_flight.discard(task)
 

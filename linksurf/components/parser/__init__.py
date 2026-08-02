@@ -88,17 +88,19 @@ class Parser(ConsumerComponent):
 
         proceed, error = await self.filter(payload)
 
+        # currently the extracted text is only used for language filtering
+        # no point in saving to the database
+        extracted.pop("text", None)
+
+        payload.content.extracted = extracted
+
         if error is not None:
             return error
 
         if not proceed:
             return None
 
-        # currently the extracted text is only used for language filtering
-        # no point in saving to the database
-        extracted.pop("text", None)
-
-        payload.content.extracted = extracted
+        payload.published = True
 
         await self.publish("url.store", payload)
 
