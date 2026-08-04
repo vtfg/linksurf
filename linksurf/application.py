@@ -89,6 +89,8 @@ class Linksurf:
 
             self.broker.stop()
 
+            self.back_queue.drain()
+
             loop.remove_signal_handler(sig)
 
         loop = asyncio.get_event_loop()

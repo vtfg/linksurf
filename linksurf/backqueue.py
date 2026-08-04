@@ -37,6 +37,8 @@ class BackQueue:
         # domain: Lock
         self.locks: dict[str, Lock] = {}
 
+        self._draining = False
+
     async def on_start(self, services: Services):
         """
         Gathers domains, URLs and release times from disk (Database).
@@ -174,6 +176,13 @@ class BackQueue:
         if should_lock or self.queues[domain].empty():
             asyncio.create_task(self._cleanup_domain(domain))
 
+    def drain(self) -> None:
+        """
+        Signal to stop enqueueing new domains.
+        """
+
+        self._draining = True
+
     async def _cleanup_domain(self, domain: str) -> None:
         """
         Deletes all domain related elements (queue, release time and lock) from in-memory properties and replaces with a new one.
@@ -198,6 +207,9 @@ class BackQueue:
         """
         Returns `True` if a new domain was successfully enqueued.
         """
+
+        if self._draining:
+            return False
 
         async with self.lock:
             if len(self.queues) >= MAX_ACTIVE_DOMAINS:
