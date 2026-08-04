@@ -23,7 +23,7 @@ class Payload:
             metadata: dict[str, Any] | None = None,
             correlation_id: str | None = None,
             crawl_id: str | None = None,
-            discovered_at: datetime = datetime.now(timezone.utc),
+            discovered_at: datetime | None = None,
     ):
         if metadata is None:
             metadata = {}
@@ -40,7 +40,7 @@ class Payload:
         self._metadata = metadata
         self.correlation_id = correlation_id or uuid4().hex
         self.crawl_id = crawl_id
-        self.discovered_at = discovered_at
+        self.discovered_at = discovered_at or datetime.now(timezone.utc)
 
         # TODO: Remove this workaround
         # in-memory only, never serialized
