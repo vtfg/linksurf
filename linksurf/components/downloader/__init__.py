@@ -135,9 +135,6 @@ class Downloader(LooperComponent):
         Current crawl ends here with status FINISHED (or ERRORED, if the depth limit was hit).
         """
 
-        payload.response = response.to_summary()
-        payload.request = request.to_summary()
-
         location = response.headers.get("location")
 
         if not location:
