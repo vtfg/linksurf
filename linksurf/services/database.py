@@ -180,47 +180,44 @@ class MongoDatabase(Database):
         if self._client is None or self._database is None:
             raise RuntimeError("Service not started.")
 
-        document = await self._database["urls"].find_one({"hash": hash})
-
-        if document is None:
-            raise ValueError(f"No URL document found for hash {hash}.")
-
-        crawls = document["crawls"] + [asdict(crawl)]
-        crawls = crawls[-MAX_CRAWL_HISTORY_PER_URL:]
-
-        await self._database["urls"].update_one(
+        # prevents race condition with update_crawl
+        result = await self._database["urls"].update_one(
             {"hash": hash},
-            {"$set": {"crawls": crawls}},
+            {"$push": {"crawls": {"$each": [asdict(crawl)], "$slice": -MAX_CRAWL_HISTORY_PER_URL}}},
         )
+
+        if result.matched_count == 0:
+            raise ValueError(f"No URL document found for hash {hash}.")
 
     async def update_crawl(self, crawl_id: str, execution: ComponentExecution, fields: dict[str, Any]) -> None:
         if self._client is None or self._database is None:
             raise RuntimeError("Service not started.")
 
-        document = await self._database["urls"].find_one({"crawls.id": crawl_id})
-
-        if document is None:
-            return
-
         execution_data = asdict(execution)
 
-        for crawl in document["crawls"]:
-            if crawl["id"] != crawl_id:
-                continue
+        overwrite_fields = {f"crawls.$[crawl].{key}": value for key, value in fields.items()}
+        overwrite_fields["crawls.$[crawl].components.$[execution]"] = execution_data
 
-            for i, component in enumerate(crawl["components"]):
-                if component["component"] == execution.component:
-                    crawl["components"][i] = execution_data
+        result = await self._database["urls"].update_one(
+            {"crawls": {"$elemMatch": {"id": crawl_id, "components.component": execution.component}}},
+            {"$set": overwrite_fields},
+            array_filters=[{"crawl.id": crawl_id}, {"execution.component": execution.component}],
+        )
 
-                    break
-            else:
-                crawl["components"].append(execution_data)
+        if result.matched_count > 0:
+            return
 
-            crawl.update(fields)
+        # no existing entry for this component in this crawl: append instead of overwrite
+        append_fields = {f"crawls.$[crawl].{key}": value for key, value in fields.items()}
 
-            break
-
-        await self._database["urls"].update_one({"hash": document["hash"]}, {"$set": {"crawls": document["crawls"]}})
+        await self._database["urls"].update_one(
+            {"crawls.id": crawl_id},
+            {
+                "$push": {"crawls.$[crawl].components": execution_data},
+                "$set": append_fields,
+            },
+            array_filters=[{"crawl.id": crawl_id}],
+        )
 
     async def save_domain(self, domain: str) -> None:
         if self._client is None:
