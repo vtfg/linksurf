@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from enum import Enum
+from datetime import datetime, timezone
+from enum import Enum, StrEnum
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+from uuid import uuid4
 
 from linksurf.common.types import CaseInsensitiveDict
 from linksurf.utils.url import hash_url, normalize_url
@@ -115,7 +119,7 @@ class Redirect:
 class HTTPResponseSummary:
     status_code: int
     headers: dict[str, str]
-    encoding: str
+    encoding: str | None
     elapsed_ms: float
     size_bytes: int
     redirects: list[Redirect]
@@ -149,6 +153,10 @@ class HTTPResponse:
     @property
     def ok(self) -> bool:
         return 200 <= self.status_code < 300
+
+    @property
+    def is_redirect(self) -> bool:
+        return self.status_code in [301, 302, 303, 307, 308]
 
     @property
     def content_type(self) -> str | None:
@@ -203,3 +211,59 @@ class Language(str, Enum):
 
     PORTUGUESE = "pt"
     ENGLISH = "en"
+
+
+@dataclass
+class ComponentExecution:
+    component: str
+    rules: list[str]
+    deduplicator: str | None
+    middlewares: list[str]
+    filters: list[str]
+    retries: int = 0
+    # seen: bool | None -> future: response from Deduplicator (?!)
+    error: str | None = None
+    exception: str | None = None  # exception path
+    retriable: bool | None = None
+    started_at: datetime | None = None  # doesn't reset on retries
+    finished_at: datetime | None = None
+
+
+class CrawlStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    ERRORED = "errored"
+    FINISHED = "finished"
+
+
+@dataclass
+class Crawl:
+    id: str = field(default_factory=lambda: uuid4().hex)
+    components: list[ComponentExecution] = field(default_factory=list)
+    status: CrawlStatus = CrawlStatus.PENDING
+    request: HTTPRequestSummary | None = None
+    response: HTTPResponseSummary | None = None
+    content: Content | None = None
+    redirects: list[Redirect] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # first component's started_at
+    finished_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # last component's finished_at
+
+    @classmethod
+    def from_document(cls, data: dict[str, Any]) -> Crawl:
+        response = data.get("response")
+
+        return cls(
+            id=data["id"],
+            components=[ComponentExecution(**component) for component in data["components"]],
+            status=CrawlStatus(data.get("status", CrawlStatus.PENDING.value)),
+            request=HTTPRequestSummary(**data["request"]) if data.get("request") else None,
+            response=HTTPResponseSummary(
+                **{**response, "redirects": [Redirect(**r) for r in response.get("redirects", [])]}
+            ) if response else None,
+            content=Content(**data["content"]) if data.get("content") else None,
+            redirects=[Redirect(**r) for r in data.get("redirects", [])],
+            metadata=data.get("metadata", {}),
+            started_at=data["started_at"],
+            finished_at=data["finished_at"],
+        )

@@ -214,6 +214,8 @@ class BackQueue:
 
             new_domains = await self.database.get_distinct_domains(current_domains + excluded_domains, limit=1)
 
+            # Logger().debug("back_queue.debug", new=new_domains, excluded=excluded_domains, current=current_domains)
+
             if not new_domains:
                 return False
 
@@ -225,18 +227,12 @@ class BackQueue:
                 return False
 
             for url in urls:
+                # fresh Payload because these URLs have never been crawled
                 payload = Payload(
                     url=URL(url.address),
                     priority=url.priority,
                     correlation_id=url.correlation_id,
-                    status=url.status,
-                    content=url.content,
-                    redirects=url.redirects,
-                    request=url.request,
-                    response=url.response,
-                    metadata=url.metadata,
                     discovered_at=url.discovered_at,
-                    fetched_at=url.fetched_at,
                 )
 
                 await self.put(payload)

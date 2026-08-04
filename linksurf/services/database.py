@@ -8,9 +8,8 @@ from typing import Any
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
-from linksurf.common.constants import MAX_DOMAIN_CONSECUTIVE_LOCKS
-from linksurf.common.models import Redirect, Content, HTTPRequestSummary, HTTPResponseSummary
-from linksurf.common.payload import Payload, Status
+from linksurf.common.constants import MAX_DOMAIN_CONSECUTIVE_LOCKS, MAX_CRAWL_HISTORY_PER_URL
+from linksurf.common.models import Crawl, ComponentExecution
 from linksurf.common.settings import Settings
 from linksurf.services.base import Service
 
@@ -23,6 +22,8 @@ class DomainStatus(StrEnum):
 
 @dataclass
 class DomainMetrics:
+    # counter of content languages identified by the LanguageMiddleware
+    # only populated by the LanguageFilter
     languages: dict[str, int] = field(default_factory=dict)
 
 
@@ -45,40 +46,42 @@ class URLModel:
     domain: str
     priority: int
     correlation_id: str
-    status: Status = Status.PENDING
-    request: HTTPRequestSummary | None = None
-    response: HTTPResponseSummary | None = None
-    content: Content | None = None
-    redirects: list[Redirect] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    crawls: list[Crawl] = field(default_factory=list)
+    # ^ contains only the last MAX_CRAWL_HISTORY_PER_URL entries
+    # empty list means the Frontier registered this URL but the Downloader didn't attempted to fetch yet
+    # current state (status, request, response, content, redirects, metadata) is read from crawls[-1]
     discovered_at: datetime = datetime.now(timezone.utc)
-    fetched_at: datetime | None = None
-
-    @classmethod
-    def from_payload(cls, payload: Payload, status: Status = Status.PENDING) -> URLModel:
-        return cls(
-            address=payload.url.address,
-            hash=payload.url.hash,
-            domain=payload.url.domain,
-            priority=payload.priority,
-            status=status,
-            correlation_id=payload.correlation_id,
-            request=payload.request,
-            response=payload.response,
-            content=payload.content,
-            redirects=payload.redirects,
-            metadata={k: v for k, v in payload.metadata.items() if k != "links"},
-            discovered_at=payload.discovered_at,
-            fetched_at=payload.fetched_at,
-        )
 
 
 class Database(Service):
     NAME = "database"
 
-    async def save_url(self, data: URLModel) -> str:
+    async def register_url(self, url: URLModel) -> None:
         """
-        Save a URL to the database and return its ID.
+        Save a URL to the database.
+
+        Doesn't upsert to prevent state loss.
+        """
+
+        raise NotImplementedError()
+
+    async def start_crawl(self, hash: str, crawl: Crawl) -> None:
+        """
+        Appends a `crawl` entry as the newest entry for the URL document identified by `hash`,
+        bounded to the last MAX_CRAWL_HISTORY_PER_URL.
+
+        Ensures the document exist first.
+        """
+
+        raise NotImplementedError()
+
+    async def update_crawl(self, crawl_id: str, execution: ComponentExecution,
+                           fields: dict[str, Any]) -> None:
+        """
+        Records a component `execution` entry into the crawl identified by `crawl_id`, overwriting any existing
+        entry for the same component (only happens on retries).
+
+        The `fields` dict applies patches to the crawl-level attributes (request, response, content, redirects, etc.).
         """
 
         raise NotImplementedError()
@@ -102,7 +105,7 @@ class Database(Service):
 
     async def get_domain_urls(self, domain: str, limit: int) -> list[URLModel]:
         """
-        Gets a list of N (`limit`) pending URLs for a domain after ordering by priority.
+        Gets a list of N (`limit`) never crawled URLs for a domain after ordering by priority.
         """
 
         raise NotImplementedError()
@@ -163,19 +166,58 @@ class MongoDatabase(Database):
             self._database = None
             self._client = None
 
-    async def save_url(self, data: URLModel) -> str:
+    async def register_url(self, url: URLModel) -> None:
         if self._client is None or self._database is None:
             raise RuntimeError("Service not started.")
 
-        result = await self._database["urls"].find_one_and_update(
-            {"correlation_id": data.correlation_id},
-            {"$set": asdict(data)},
-            {"_id": True},
+        await self._database["urls"].update_one(
+            {"hash": url.hash},
+            {"$setOnInsert": asdict(url)},
             upsert=True,
-            return_document=True,
         )
 
-        return result["_id"]
+    async def start_crawl(self, hash: str, crawl: Crawl) -> None:
+        if self._client is None or self._database is None:
+            raise RuntimeError("Service not started.")
+
+        # prevents race condition with update_crawl
+        result = await self._database["urls"].update_one(
+            {"hash": hash},
+            {"$push": {"crawls": {"$each": [asdict(crawl)], "$slice": -MAX_CRAWL_HISTORY_PER_URL}}},
+        )
+
+        if result.matched_count == 0:
+            raise ValueError(f"No URL document found for hash {hash}.")
+
+    async def update_crawl(self, crawl_id: str, execution: ComponentExecution, fields: dict[str, Any]) -> None:
+        if self._client is None or self._database is None:
+            raise RuntimeError("Service not started.")
+
+        execution_data = asdict(execution)
+
+        overwrite_fields = {f"crawls.$[crawl].{key}": value for key, value in fields.items()}
+        overwrite_fields["crawls.$[crawl].components.$[execution]"] = execution_data
+
+        result = await self._database["urls"].update_one(
+            {"crawls": {"$elemMatch": {"id": crawl_id, "components.component": execution.component}}},
+            {"$set": overwrite_fields},
+            array_filters=[{"crawl.id": crawl_id}, {"execution.component": execution.component}],
+        )
+
+        if result.matched_count > 0:
+            return
+
+        # no existing entry for this component in this crawl: append instead of overwrite
+        append_fields = {f"crawls.$[crawl].{key}": value for key, value in fields.items()}
+
+        await self._database["urls"].update_one(
+            {"crawls.id": crawl_id},
+            {
+                "$push": {"crawls.$[crawl].components": execution_data},
+                "$set": append_fields,
+            },
+            array_filters=[{"crawl.id": crawl_id}],
+        )
 
     async def save_domain(self, domain: str) -> None:
         if self._client is None:
@@ -192,7 +234,7 @@ class MongoDatabase(Database):
             raise RuntimeError("Service not started.")
 
         pipeline = [
-            {"$match": {"domain": {"$nin": excluded}, "status": Status.PENDING.value}},
+            {"$match": {"domain": {"$nin": excluded}, "crawls": {"$size": 0}}},
             {
                 "$group": {
                     "_id": "$domain",
@@ -213,7 +255,7 @@ class MongoDatabase(Database):
             raise RuntimeError("Service not started.")
 
         cursor = self._database["urls"].find(
-            {"domain": domain, "status": Status.PENDING.value}).sort("priority", -1).limit(limit)
+            {"domain": domain, "crawls": {"$size": 0}}).sort("priority", -1).limit(limit)
         documents = await cursor.to_list(length=limit)
 
         urls: list[URLModel] = []
@@ -224,15 +266,9 @@ class MongoDatabase(Database):
                 hash=document["hash"],
                 domain=document["domain"],
                 priority=document["priority"],
-                status=Status(document["status"]),
                 correlation_id=document["correlation_id"],
-                request=HTTPRequestSummary(**document["request"]) if document["request"] else None,
-                response=HTTPResponseSummary(**document["response"]) if document["response"] else None,
-                content=Content(**document["content"]) if document["content"] else None,
-                redirects=[Redirect(**redirect) for redirect in document["redirects"]] if document["redirects"] else [],
-                metadata=document["metadata"],
+                crawls=[Crawl.from_document(crawl) for crawl in document["crawls"]],
                 discovered_at=document["discovered_at"],
-                fetched_at=document["fetched_at"],
             )
 
             urls.append(url)

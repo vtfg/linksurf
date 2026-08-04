@@ -19,9 +19,6 @@ class Broker:
     async def publish(self, topic: str, data: Any, priority: int = MIN_QUEUE_PRIORITY):
         raise NotImplementedError()
 
-    async def delayed_publish(self, topic: str, data: Any, delay_seconds: int, priority: int = MIN_QUEUE_PRIORITY):
-        raise NotImplementedError()
-
     async def loop(self):
         raise NotImplementedError()
 

@@ -1,16 +1,17 @@
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable, NamedTuple, Awaitable
 
 from linksurf.broker.base import Broker
-from linksurf.common.constants import MAX_RETRIES, MIN_QUEUE_PRIORITY
+from linksurf.common.models import ComponentExecution, CrawlStatus
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Response, Error
 from linksurf.events.bus import EventBus
 from linksurf.logger import Logger
-from linksurf.services import Services
+from linksurf.services import Services, Database
 
 
 class Executor:
@@ -92,7 +93,16 @@ class Deduplicator:
 
 
 class Component:
-    TOPIC: str
+    """
+    Base class for the pipeline component.
+
+    Defines functions for executing rules, deduplicators, middlewares, filters and prioritizers.
+    Emits all base events automatically.
+    """
+
+    NAME: str
+
+    database: Database
 
     def __init__(self, broker: Broker) -> None:
         self.broker = broker
@@ -103,12 +113,12 @@ class Component:
         self.filters: list[Filter] = []
         self.prioritizer: Prioritizer | None = None
 
-        self._component_name = type(self).__name__
-        self._looping = False
-        self._loop_tasks: list[asyncio.Task] = []
-        self._loop_in_flight: set[asyncio.Task] = set()
+        if self.NAME is None:
+            self.NAME = type(self).__name__
 
     async def on_start(self, settings: Settings, services: Services):
+        self.database = services.database
+
         for rule in self.rules:
             await rule.on_start(settings, services)
 
@@ -125,17 +135,6 @@ class Component:
             await self.prioritizer.on_start(settings, services)
 
     async def on_stop(self):
-        self._looping = False
-
-        if self._loop_in_flight:
-            Logger().warning("component.draining", component=self._component_name,
-                             pending=len(self._loop_in_flight))
-
-            await asyncio.gather(*self._loop_in_flight, return_exceptions=True)
-
-        self._loop_tasks = []
-        self._loop_in_flight = set()
-
         for rule in self.rules:
             await rule.on_stop()
 
@@ -200,7 +199,7 @@ class Component:
         if payload.deduplicated:
             # this payload was already deduplicated once; re-checking would only block its own retry
 
-            Logger().debug("component.debug", component=self._component_name,
+            Logger().debug("component.debug", component=self.NAME,
                            url=payload.url.address, message="Bypassing deduplication.")
 
             return False, None
@@ -394,6 +393,78 @@ class Component:
 
         return response.data, None
 
+    async def publish(self, topic: str, data: Payload | list[Payload]) -> None:
+        from linksurf.events import ComponentPublishEvent
+
+        payloads = data if isinstance(data, list) else [data]
+
+        for payload in payloads:
+            await self.broker.publish(topic, payload, payload.priority)
+
+        EventBus().emit(ComponentPublishEvent(
+            component=self.NAME, topic=topic,
+            urls=[(payload.url.address, payload.priority) for payload in payloads],
+        ))
+
+    async def _save_execution(self, payload: Payload, execution: ComponentExecution, error: Error | None) -> None:
+        """
+        Saves this component's execution into the payload's current crawl entry.
+
+        A crawl is only created inside the Downloader, so the Frontier's execution details is discarded.
+        """
+
+        if error is not None:
+            execution.error = error.message
+            execution.retriable = error.retriable
+
+            if error.exception is not None:
+                exception_type = type(error.exception)
+                execution.exception = f"{exception_type.__module__}.{exception_type.__qualname__}"
+
+        if payload.crawl_id is None:
+            return
+
+        fields: dict[str, Any] = {"finished_at": execution.finished_at}
+
+        if payload.request is not None:
+            fields["request"] = asdict(payload.request)
+        if payload.response is not None:
+            fields["response"] = asdict(payload.response)
+        if payload.content is not None:
+            fields["content"] = asdict(payload.content)
+        if payload.redirects:
+            fields["redirects"] = [asdict(redirect) for redirect in payload.redirects]
+
+        metadata = {key: value for key, value in payload.metadata.items() if key != "links"}
+
+        if metadata:
+            fields["metadata"] = metadata
+
+        # no error and not published onward -> crawl attempt is over
+        # either by completion (last stage) or skipped due to a filter or deduplicator
+        if error is not None:
+            status = CrawlStatus.ERRORED
+        elif payload.published:
+            status = CrawlStatus.IN_PROGRESS
+        else:
+            status = CrawlStatus.FINISHED
+
+        fields["status"] = status.value
+
+        try:
+            await self.database.update_crawl(payload.crawl_id, execution, fields)
+        except Exception as e:
+            Logger().error("component.error", component=self.NAME, message="Failed to save crawl execution.",
+                           exception=str(e))
+
+
+class ConsumerComponent(Component):
+    """
+    A component that consumes from the defined Broker topic and processes Payloads from it.
+    """
+
+    TOPIC: str
+
     async def subscribe(self, topic: str, callback: Callable[[Payload], Awaitable[Error | None]],
                         concurrency: int = 1) -> None:
         if concurrency < 1:
@@ -412,6 +483,7 @@ class Component:
 
             correlation_id = data.correlation_id
             url = data.url.address
+            started_at = datetime.now(timezone.utc)
             start_time = time.perf_counter()
 
             if data.retrying:
@@ -428,6 +500,18 @@ class Component:
 
             end_time = time.perf_counter()
             duration_ms = (end_time - start_time) * 1000
+            finished_at = datetime.now(timezone.utc)
+
+            execution = ComponentExecution(
+                component=self.NAME,
+                rules=[type(rule).__name__ for rule in self.rules],
+                deduplicator=type(self.deduplicator).__name__ if self.deduplicator else None,
+                middlewares=[type(middleware).__name__ for middleware in self.middlewares],
+                filters=[type(filter).__name__ for filter in self.filters],
+                retries=data.retries,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
 
             if error is not None:
                 EventBus().emit(
@@ -438,32 +522,43 @@ class Component:
                                         retries=data.retries,
                                         unexpected=error.unexpected,
                                         exception=error.exception))
+            else:
+                EventBus().emit(
+                    ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                         topic=topic, duration_ms=duration_ms,
+                                         retrying=data.retrying, retries=data.retries))
 
-                if error.retriable and data.retries < MAX_RETRIES:
-                    data.retrying = True
-
-                    if error.delay_seconds:
-                        await self.delayed_publish(self.TOPIC, data, error.delay_seconds)
-                    else:
-                        await self.publish(self.TOPIC, data)
-                else:
-                    Logger().warning(
-                        "component.discard",
-                        url=data.url.address,
-                        topic=self.TOPIC,
-                        retries=data.retries,
-                        reason=error.message,
-                        retriable=error.retriable,
-                    )
-
-                return
-
-            EventBus().emit(
-                ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                     topic=topic, duration_ms=duration_ms,
-                                     retrying=data.retrying, retries=data.retries))
+            await self._save_execution(data, execution, error)
 
         await self.broker.subscribe(topic, handler, concurrency=concurrency)
+
+
+class LooperComponent(Component):
+    """
+    A component that loops a defined callback indefinitely.
+
+    Requires a `pull` function, which is responsible for gathering Payloads to process.
+    """
+
+    def __init__(self, broker: Broker) -> None:
+        super().__init__(broker)
+
+        self._looping = False
+        self._loop_tasks: list[asyncio.Task] = []
+        self._loop_in_flight: set[asyncio.Task] = set()
+
+    async def on_stop(self) -> None:
+        self._looping = False
+
+        if self._loop_in_flight:
+            Logger().warning("component.draining", component=self.NAME, pending=len(self._loop_in_flight))
+
+            await asyncio.gather(*self._loop_in_flight, return_exceptions=True)
+
+        self._loop_tasks = []
+        self._loop_in_flight = set()
+
+        await super().on_stop()
 
     async def loop(self, pull: Callable[[], Awaitable[tuple[Payload, Any]]],
                    callback: Callable[[Payload, ...], Awaitable[Error | None]],
@@ -493,6 +588,7 @@ class Component:
 
                 correlation_id = payload.correlation_id
                 url = payload.url.address
+                started_at = datetime.now(timezone.utc)
                 start_time = time.perf_counter()
 
                 if payload.retrying:
@@ -512,6 +608,18 @@ class Component:
 
                 end_time = time.perf_counter()
                 duration_ms = (end_time - start_time) * 1000
+                finished_at = datetime.now(timezone.utc)
+
+                execution = ComponentExecution(
+                    component=self.NAME,
+                    rules=[type(rule).__name__ for rule in self.rules],
+                    deduplicator=type(self.deduplicator).__name__ if self.deduplicator else None,
+                    middlewares=[type(middleware).__name__ for middleware in self.middlewares],
+                    filters=[type(filter).__name__ for filter in self.filters],
+                    retries=payload.retries,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                )
 
                 if error is not None:
                     EventBus().emit(
@@ -528,44 +636,20 @@ class Component:
                                              function=function_name, duration_ms=duration_ms,
                                              retrying=payload.retrying, retries=payload.retries))
 
+                await self._save_execution(payload, execution, error)
+
                 self._loop_in_flight.discard(task)
 
         self._loop_tasks = [asyncio.create_task(handler()) for _ in range(concurrency)]
 
-    async def publish(self, topic: str, data: Payload | list[Payload], priority: int | None = None) -> None:
-        from linksurf.events import ComponentPublishEvent
 
-        payloads = data if isinstance(data, list) else [data]
+class SchedulerComponent(Component):
+    """
+    This type of component executes a callback from time to time, respecting a CRON expression.
+    Doesn't receive Payloads for processing, but may gather and publish to consumer components.
 
-        for payload in payloads:
-            self._prepare_publish(topic, payload, priority)
+    Can be useful for background data analysis or re-crawl scheduling (the intended use).
+    """
 
-            await self.broker.publish(topic, payload, payload.priority)
-
-        EventBus().emit(ComponentPublishEvent(
-            component=self._component_name, topic=topic,
-            urls=[(payload.url.address, payload.priority) for payload in payloads],
-        ))
-
-    async def delayed_publish(self, topic: str, payload: Payload, delay_seconds: int,
-                              priority: int | None = None) -> None:
-        from linksurf.events import ComponentPublishEvent
-
-        self._prepare_publish(topic, payload, priority)
-
-        EventBus().emit(ComponentPublishEvent(
-            component=self._component_name, topic=topic,
-            urls=[(payload.url.address, payload.priority)], delay=delay_seconds,
-        ))
-
-        await self.broker.delayed_publish(topic, payload, delay_seconds, payload.priority)
-
-    def _prepare_publish(self, topic: str, payload: Payload, priority: int | None) -> None:
-        if priority is not None:
-            payload.priority = priority
-
-        if topic != self.TOPIC:
-            payload.retrying = False
-            payload.retries = 0
-        else:
-            payload.priority = max(MIN_QUEUE_PRIORITY, payload.priority - 1)
+    async def schedule(self, cron: str, callback: Callable[[], Awaitable]):
+        raise NotImplementedError()

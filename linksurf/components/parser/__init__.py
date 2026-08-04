@@ -5,7 +5,7 @@ from linksurf.common.models import URL, Language, Link
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
-from linksurf.components.base import Component
+from linksurf.components.base import ConsumerComponent
 from linksurf.components.parser.extractors import (
     ExtractorsRegistry,
     ExtractorRules
@@ -17,7 +17,8 @@ from linksurf.logger import Logger
 from linksurf.services import Services, BlobStorage, Cache
 
 
-class Parser(Component):
+class Parser(ConsumerComponent):
+    NAME = "Parser"
     TOPIC = "url.parse"
 
     blob_storage: BlobStorage
@@ -87,17 +88,19 @@ class Parser(Component):
 
         proceed, error = await self.filter(payload)
 
+        # currently the extracted text is only used for language filtering
+        # no point in saving to the database
+        extracted.pop("text", None)
+
+        payload.content.extracted = extracted
+
         if error is not None:
             return error
 
         if not proceed:
             return None
 
-        # currently the extracted text is only used for language filtering
-        # no point in saving to the database
-        extracted.pop("text", None)
-
-        payload.content.extracted = extracted
+        payload.published = True
 
         await self.publish("url.store", payload)
 

@@ -62,7 +62,6 @@ class ComponentPublishEvent:
     component: str
     topic: str
     urls: list[tuple[str, int]]  # (address, priority)
-    delay: int | None = None
     name: Literal["component.publish"] = field(default="component.publish", init=False)
 
 
