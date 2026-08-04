@@ -1,4 +1,5 @@
 from asyncio import Lock
+from urllib.parse import urljoin
 
 from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
@@ -20,7 +21,6 @@ from linksurf.components.base import LooperComponent
 from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
 from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware
 from linksurf.services import Services, Fetcher, BlobStorage, Cache, Database
-from linksurf.services.fetcher import MaxRedirectsError
 
 
 class Downloader(LooperComponent):
@@ -69,17 +69,18 @@ class Downloader(LooperComponent):
             payload.crawl_id = crawl.id
 
         async with lock:
-            request = HTTPRequest(url=payload.url.address, follow_redirects=True,
-                                  metadata=HTTPRequestMetadata(correlation_id=payload.correlation_id,
-                                                               component="Downloader"))
+            request = HTTPRequest(
+                url=payload.url.address, follow_redirects=False,
+                metadata=HTTPRequestMetadata(correlation_id=payload.correlation_id, component="Downloader")
+            )
+
+            payload.request = request.to_summary()
 
             response: HTTPResponse | None = None
             exception: Exception | None = None
 
             try:
                 response = await self.fetcher.http(request)
-            except MaxRedirectsError as e:
-                return Error("Too many redirects.", retriable=False, exception=e)
             except Exception as e:
                 exception = e
 
@@ -90,29 +91,13 @@ class Downloader(LooperComponent):
         if response is None:
             return Error("HTTP fetch returned empty response.", retriable=True)
 
+        payload.response = response.to_summary()
+
+        if response.is_redirect:
+            return await self._handle_redirect(payload, response, request)
+
         if not response.ok:
             return Error(f"Response has unacceptable status ({response.status_code}).", retriable=False)
-
-        if response.redirects:
-            # depth needs to be recalculated because the payload can already have an existing redirects fields
-            # happens when cross-domain redirect, a new payload gets sent back to the Frontier and Downloader execution stops
-
-            self._append_redirects_to_payload(payload, response.redirects)
-
-        if payload.redirects and payload.redirects[-1].depth >= MAX_REDIRECT_DEPTH:
-            return Error("Redirect depth limit exceeded.", retriable=False)
-
-        final_url = URL(response.url)
-
-        if final_url.domain != payload.url.domain:
-            redirect_payload = Payload(url=final_url, redirects=payload.redirects)
-
-            await self.publish("url.process", redirect_payload)
-
-            return None
-
-        payload.url = final_url
-        payload.response = response.to_summary()
 
         proceed, error = await self.filter(payload)
 
@@ -136,7 +121,6 @@ class Downloader(LooperComponent):
             mime_type = MimeType.UNKNOWN
 
         payload.content = Content(key=key, type=mime_type)
-        payload.request = request.to_summary()
 
         payload.published = True
 
@@ -144,13 +128,33 @@ class Downloader(LooperComponent):
 
         return None
 
-    def _append_redirects_to_payload(self, payload: Payload, redirects: list) -> None:
-        start_depth = len(payload.redirects)
+    async def _handle_redirect(self, payload: Payload, response: HTTPResponse, request: HTTPRequest) -> Error | None:
+        """
+        Records this hop's response and, if under the depth limit, publishes the redirect target back to the Frontier.
 
-        for i, redirect in enumerate(redirects):
-            payload.redirects.append(Redirect(
-                source=redirect.source,
-                target=redirect.target,
-                status_code=redirect.status_code,
-                depth=start_depth + i,
-            ))
+        Current crawl ends here with status FINISHED (or ERRORED, if the depth limit was hit).
+        """
+
+        payload.response = response.to_summary()
+        payload.request = request.to_summary()
+
+        location = response.headers.get("location")
+
+        if not location:
+            return Error("Redirect response missing a Location header.", retriable=False)
+
+        target = URL(urljoin(payload.url.address, location))
+
+        payload.redirects.append(Redirect(
+            source=payload.url.address, target=target.address,
+            status_code=response.status_code, depth=len(payload.redirects),
+        ))
+
+        if payload.redirects[-1].depth >= MAX_REDIRECT_DEPTH:
+            return Error("Redirect depth limit exceeded.", retriable=False)
+
+        redirect_payload = Payload(url=target, redirects=payload.redirects)
+
+        await self.publish("url.process", redirect_payload)
+
+        return None

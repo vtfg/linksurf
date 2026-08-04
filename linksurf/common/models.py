@@ -155,6 +155,10 @@ class HTTPResponse:
         return 200 <= self.status_code < 300
 
     @property
+    def is_redirect(self) -> bool:
+        return self.status_code in [301, 302, 303, 307, 308]
+
+    @property
     def content_type(self) -> str | None:
         return self.headers.get("content-type")
 
