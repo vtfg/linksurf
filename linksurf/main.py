@@ -42,12 +42,4 @@ if __name__ == "__main__":
 
     linksurf = Linksurf(settings=settings, services=services, broker=broker)
 
-    # Future implementation
-    # Extensions contain a list of middlewares for the frontier and filters for both frontier and storage
-    # They may also have lifecycle events and scheduled events (i.e. to check proxies periodically)
-    # Extensions can also be HTTP servers, like an Admin Panel that shows metrics about the crawler
-    linksurf.extensions = [
-        # ProxyPoolExtension(proxies=list[URL?]) -> manages proxies and returns one before every request
-    ]
-
     asyncio.run(linksurf.start(seed))

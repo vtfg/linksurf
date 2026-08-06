@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import functools
 import mimetypes
@@ -11,12 +13,15 @@ from linksurf.broker.base import Broker
 from linksurf.common.models import URL
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
+from linksurf.components.base import Component
 from linksurf.components.downloader import Downloader
 from linksurf.components.frontier import Frontier
 from linksurf.components.parser import Parser
 from linksurf.components.storage import Storage
 from linksurf.events.bus import EventBus
-from linksurf.events.listeners import Listener, LoggingListener, BetterStackListener
+from linksurf.events.listeners import Listener, BetterStackListener
+from linksurf.events.listeners import LoggingListener
+from linksurf.extensions import Extension
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.utils.env import get_env
@@ -69,6 +74,12 @@ class Linksurf:
         self.parser = Parser(broker)
         self.storage = Storage(broker)
 
+        self.components: list[Component] = [
+            self.frontier,
+            self.downloader,
+            self.parser,
+            self.storage,
+        ]
         self.listeners: list[Listener] = [
             LoggingListener(),
             BetterStackListener(
@@ -76,13 +87,16 @@ class Linksurf:
                 host=get_env("BETTERSTACK_HOST")
             )
         ]
+        self.extensions: list[Extension] = []
 
     async def start(self, seed: Seed) -> None:
+        Logger().info("application.start")
+
+        Logger().info("listeners.register", listeners=[type(listener).__name__ for listener in self.listeners])
+
         for listener in self.listeners:
             for name in listener.EVENTS:
                 EventBus().on(name, listener.handle)
-
-        Logger().info("application.start")
 
         def on_signal(sig, loop: AbstractEventLoop):
             Logger().info("application.shutdown", message="Press Ctrl+C to exit immediately.")
@@ -116,9 +130,12 @@ class Linksurf:
 
             return
 
-        components = [self.frontier, self.downloader, self.parser, self.storage]
+        Logger().info("extensions.start", extensions=[type(extension).__name__ for extension in self.extensions])
 
-        for component in components:
+        for extension in self.extensions:
+            await extension.on_start()
+
+        for component in self.components:
             await component.on_start(self.settings, self.services)
 
         await self.seed(seed.urls)
@@ -142,9 +159,10 @@ class Linksurf:
             await self.shutdown()
 
     async def shutdown(self) -> None:
-        components = [self.frontier, self.downloader, self.parser, self.storage]
+        for extension in self.extensions:
+            await extension.on_stop()
 
-        for component in components:
+        for component in self.components:
             await component.on_stop()
 
         try:
