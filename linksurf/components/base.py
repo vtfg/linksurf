@@ -166,20 +166,20 @@ class Component:
         for rule in self.rules:
             rule_name = type(rule).__name__
 
-            EventBus().emit(
+            await EventBus().emit(
                 RuleStartEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name))
 
             response = await rule.execute(payload)
 
             if response.error is not None:
-                EventBus().emit(
+                await EventBus().emit(
                     RuleErrorEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
                                    error=response.error.message, retriable=response.error.retriable,
                                    exception=response.error.exception))
 
                 return None, response.error
 
-            EventBus().emit(
+            await EventBus().emit(
                 RuleFinishEvent(correlation_id=correlation_id, url=url, component=component_name, rule=rule_name,
                                 passed=bool(response.data)))
 
@@ -213,13 +213,13 @@ class Component:
         component_name = type(self).__name__
         deduplicator_name = type(self.deduplicator).__name__
 
-        EventBus().emit(DeduplicatorStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                               deduplicator=deduplicator_name))
+        await EventBus().emit(DeduplicatorStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                     deduplicator=deduplicator_name))
 
         response = await self.deduplicator.check(payload)
 
         if response.error is not None:
-            EventBus().emit(
+            await EventBus().emit(
                 DeduplicatorErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                        deduplicator=deduplicator_name, error=response.error.message,
                                        retriable=response.error.retriable, exception=response.error.exception))
@@ -227,7 +227,7 @@ class Component:
             return None, response.error
 
         if response.seen:
-            EventBus().emit(
+            await EventBus().emit(
                 DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                         deduplicator=deduplicator_name, seen=True))
 
@@ -238,7 +238,7 @@ class Component:
         error = await self.deduplicator.register(payload)
 
         if error is not None:
-            EventBus().emit(
+            await EventBus().emit(
                 DeduplicatorErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                        deduplicator=deduplicator_name, error=error.message,
                                        retriable=error.retriable, exception=error.exception))
@@ -247,7 +247,7 @@ class Component:
 
         payload.deduplicated = True
 
-        EventBus().emit(
+        await EventBus().emit(
             DeduplicatorFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                     deduplicator=deduplicator_name, seen=False))
 
@@ -270,13 +270,13 @@ class Component:
             middleware_name = type(middleware).__name__
             metadata_snapshot = dict(payload.metadata)
 
-            EventBus().emit(MiddlewareStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                                 middleware=middleware_name))
+            await EventBus().emit(MiddlewareStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                       middleware=middleware_name))
 
             response = await middleware.execute(payload)
 
             if response.error is not None:
-                EventBus().emit(
+                await EventBus().emit(
                     MiddlewareErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                          middleware=middleware_name,
                                          error=response.error.message,
@@ -287,7 +287,7 @@ class Component:
 
             metadata_diff = {k: v for k, v in payload.metadata.items() if metadata_snapshot.get(k) != v}
 
-            EventBus().emit(
+            await EventBus().emit(
                 MiddlewareFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                       middleware=middleware_name, data=metadata_diff))
 
@@ -314,13 +314,13 @@ class Component:
         for filter in self.filters:
             filter_name = type(filter).__name__
 
-            EventBus().emit(
+            await EventBus().emit(
                 FilterStartEvent(correlation_id=correlation_id, url=url, component=component_name, filter=filter_name))
 
             response = await filter.execute(payload)
 
             if response.error is not None:
-                EventBus().emit(
+                await EventBus().emit(
                     FilterErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                      filter=filter_name, error=response.error.message,
                                      retriable=response.error.retriable,
@@ -328,7 +328,7 @@ class Component:
 
                 return None, response.error
 
-            EventBus().emit(
+            await EventBus().emit(
                 FilterFinishEvent(correlation_id=correlation_id, url=url, component=component_name, filter=filter_name,
                                   passed=bool(response.data)))
 
@@ -354,7 +354,7 @@ class Component:
         component_name = type(self).__name__
         prioritizer_name = type(self.prioritizer).__name__
 
-        EventBus().emit(PrioritizerStartEvent(
+        await EventBus().emit(PrioritizerStartEvent(
             correlation_id=correlation_id, url=url,
             component=component_name, prioritizer=prioritizer_name,
         ))
@@ -362,7 +362,7 @@ class Component:
         response = await self.prioritizer.execute(payload)
 
         if response.error is not None:
-            EventBus().emit(PrioritizerErrorEvent(
+            await EventBus().emit(PrioritizerErrorEvent(
                 correlation_id=correlation_id, url=url,
                 component=component_name, prioritizer=prioritizer_name,
                 error=response.error.message,
@@ -375,7 +375,7 @@ class Component:
         if not response.data:
             error = Error("Prioritizer gave empty response.", retriable=True)
 
-            EventBus().emit(PrioritizerErrorEvent(
+            await EventBus().emit(PrioritizerErrorEvent(
                 correlation_id=correlation_id, url=url,
                 component=component_name, prioritizer=prioritizer_name,
                 error=error.message,
@@ -385,7 +385,7 @@ class Component:
 
             return None, error
 
-        EventBus().emit(PrioritizerFinishEvent(
+        await EventBus().emit(PrioritizerFinishEvent(
             correlation_id=correlation_id, url=url,
             component=component_name, prioritizer=prioritizer_name,
             priority=response.data,
@@ -401,7 +401,7 @@ class Component:
         for payload in payloads:
             await self.broker.publish(topic, payload, payload.priority)
 
-        EventBus().emit(ComponentPublishEvent(
+        await EventBus().emit(ComponentPublishEvent(
             component=self.NAME, topic=topic,
             urls=[(payload.url.address, payload.priority) for payload in payloads],
         ))
@@ -474,7 +474,7 @@ class ConsumerComponent(Component):
 
         component_name = type(self).__name__
 
-        EventBus().emit(ComponentSubscribeEvent(component=component_name, topic=topic))
+        await EventBus().emit(ComponentSubscribeEvent(component=component_name, topic=topic))
 
         async def handler(data: Payload):
             from linksurf.events import (
@@ -490,8 +490,8 @@ class ConsumerComponent(Component):
                 # increment before processing so events reflect the current retry count
                 data.retries += 1
 
-            EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                                topic=topic, retrying=data.retrying, retries=data.retries))
+            await EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                                      topic=topic, retrying=data.retrying, retries=data.retries))
 
             try:
                 error = await callback(data)
@@ -514,7 +514,7 @@ class ConsumerComponent(Component):
             )
 
             if error is not None:
-                EventBus().emit(
+                await EventBus().emit(
                     ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                         error=error.message,
                                         retriable=error.retriable,
@@ -523,7 +523,7 @@ class ConsumerComponent(Component):
                                         unexpected=error.unexpected,
                                         exception=error.exception))
             else:
-                EventBus().emit(
+                await EventBus().emit(
                     ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                          topic=topic, duration_ms=duration_ms,
                                          retrying=data.retrying, retries=data.retries))
@@ -573,7 +573,7 @@ class LooperComponent(Component):
         component_name = type(self).__name__
         function_name = callback.__name__
 
-        EventBus().emit(ComponentLoopEvent(component=component_name, function=function_name))
+        await EventBus().emit(ComponentLoopEvent(component=component_name, function=function_name))
 
         self._looping = True
 
@@ -597,9 +597,10 @@ class LooperComponent(Component):
                 task = asyncio.current_task()
                 self._loop_in_flight.add(task)
 
-                EventBus().emit(ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
-                                                    function=function_name, retrying=payload.retrying,
-                                                    retries=payload.retries))
+                await EventBus().emit(
+                    ComponentStartEvent(correlation_id=correlation_id, url=url, component=component_name,
+                                        function=function_name, retrying=payload.retrying,
+                                        retries=payload.retries))
 
                 try:
                     error = await callback(payload, *extra)
@@ -622,7 +623,7 @@ class LooperComponent(Component):
                 )
 
                 if error is not None:
-                    EventBus().emit(
+                    await EventBus().emit(
                         ComponentErrorEvent(correlation_id=correlation_id, url=url, component=component_name,
                                             error=error.message,
                                             retriable=error.retriable,
@@ -631,7 +632,7 @@ class LooperComponent(Component):
                                             unexpected=error.unexpected,
                                             exception=error.exception))
                 else:
-                    EventBus().emit(
+                    await EventBus().emit(
                         ComponentFinishEvent(correlation_id=correlation_id, url=url, component=component_name,
                                              function=function_name, duration_ms=duration_ms,
                                              retrying=payload.retrying, retries=payload.retries))
