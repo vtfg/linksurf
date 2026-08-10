@@ -14,8 +14,11 @@ class Services:
         self.cache = cache
         self.fetcher = fetcher
 
+        # services that come from extensions
+        self._extra: list[Service] = []
+
     async def connect(self, settings: Settings) -> None:
-        services = [self.database, self.blob_storage, self.cache, self.fetcher]
+        services = [self.database, self.blob_storage, self.cache, self.fetcher] + self._extra
 
         for service in services:
             service_name = type(service).__name__
@@ -30,7 +33,7 @@ class Services:
             Logger().info("service.start", service=service_name)
 
     async def disconnect(self) -> None:
-        services = [self.database, self.blob_storage, self.cache, self.fetcher]
+        services = [self.database, self.blob_storage, self.cache, self.fetcher] + self._extra
 
         for service in services:
             service_name = type(service).__name__
@@ -43,3 +46,6 @@ class Services:
                 raise
 
             Logger().info("service.stop", service=service_name)
+
+    def register(self, service: Service):
+        self._extra.append(service)
