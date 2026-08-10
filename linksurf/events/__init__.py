@@ -234,6 +234,37 @@ class RequestEvent:
     name: Literal["request"] = field(default="request", init=False)
 
 
+@dataclass
+class CrawlPendingEvent:
+    correlation_id: str
+    url: str
+    component: str
+
+    name: Literal["crawl.pending"] = field(default="crawl.pending", init=False)
+
+
+@dataclass
+class CrawlStartEvent:
+    correlation_id: str
+    id: str
+    url: str
+    component: str
+
+    name: Literal["crawl.start"] = field(default="crawl.start", init=False)
+
+
+@dataclass
+class CrawlFinishEvent:
+    correlation_id: str
+    id: str
+    url: str
+    component: str
+    status: str
+    success: bool
+
+    name: Literal["crawl.finish"] = field(default="crawl.finish", init=False)
+
+
 Event = Union[
     ComponentSubscribeEvent, ComponentLoopEvent,
     ComponentStartEvent, ComponentFinishEvent, ComponentErrorEvent,
@@ -244,4 +275,5 @@ Event = Union[
     FilterStartEvent, FilterFinishEvent, FilterErrorEvent,
     PrioritizerStartEvent, PrioritizerFinishEvent, PrioritizerErrorEvent,
     RequestEvent,
+    CrawlPendingEvent, CrawlStartEvent, CrawlFinishEvent,
 ]

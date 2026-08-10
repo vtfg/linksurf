@@ -101,6 +101,7 @@ class Component:
     """
 
     NAME: str
+    FINAL: bool = False
 
     database: Database
 
@@ -413,6 +414,8 @@ class Component:
         A crawl is only created inside the Downloader, so the Frontier's execution details is discarded.
         """
 
+        from linksurf.events import CrawlFinishEvent
+
         if error is not None:
             execution.error = error.message
             execution.retriable = error.retriable
@@ -456,6 +459,14 @@ class Component:
         except Exception as e:
             Logger().error("component.error", component=self.NAME, message="Failed to save crawl execution.",
                            exception=str(e))
+
+        # TODO: Implement a concise pipeline
+        success = status == CrawlStatus.FINISHED and self.FINAL
+
+        if status != CrawlStatus.IN_PROGRESS:
+            await EventBus().emit(
+                CrawlFinishEvent(correlation_id=payload.correlation_id, id=payload.crawl_id, component=self.NAME,
+                                 url=payload.url.address, status=status, success=success))
 
 
 class ConsumerComponent(Component):

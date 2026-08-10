@@ -15,6 +15,8 @@ from linksurf.components.frontier.rules import (
     BlockedDomainsRule,
     BLOCKED_EXTENSIONS,
 )
+from linksurf.events import CrawlPendingEvent
+from linksurf.events.bus import EventBus
 from linksurf.services import Services, Database
 from linksurf.services.database import URLModel
 
@@ -99,5 +101,8 @@ class Frontier(ConsumerComponent):
             await self.database.save_domain(payload.url.domain)
         except Exception as e:
             return Error("Database write failed.", retriable=True, exception=e)
+
+        await EventBus().emit(
+            CrawlPendingEvent(correlation_id=payload.correlation_id, component=self.NAME, url=url.address))
 
         return None

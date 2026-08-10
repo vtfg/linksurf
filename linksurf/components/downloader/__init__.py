@@ -20,6 +20,8 @@ from linksurf.common.types import Error
 from linksurf.components.base import LooperComponent
 from linksurf.components.downloader.filters import ContentTypeFilter, ContentLengthFilter
 from linksurf.components.downloader.middlewares import ContentTypeMiddleware, ContentLengthMiddleware
+from linksurf.events import CrawlStartEvent
+from linksurf.events.bus import EventBus
 from linksurf.services import Services, Fetcher, BlobStorage, Cache, Database
 
 
@@ -67,6 +69,10 @@ class Downloader(LooperComponent):
                 return Error("Database write failed.", retriable=True, exception=e)
 
             payload.crawl_id = crawl.id
+
+            await EventBus().emit(
+                CrawlStartEvent(correlation_id=payload.correlation_id, id=crawl.id, component=self.NAME,
+                                url=payload.url.address))
 
         async with lock:
             request = HTTPRequest(
