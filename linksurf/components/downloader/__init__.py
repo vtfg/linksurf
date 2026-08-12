@@ -138,7 +138,7 @@ class Downloader(LooperComponent):
         """
         Records this hop's response and, if under the depth limit, publishes the redirect target back to the Frontier.
 
-        Current crawl ends here with status FINISHED (or ERRORED, if the depth limit was hit).
+        Current crawl ends here with status REDIRECTED (or ERRORED, if the depth limit was hit).
         """
 
         location = response.headers.get("location")

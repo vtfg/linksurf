@@ -260,7 +260,6 @@ class CrawlFinishEvent:
     url: str
     component: str
     status: str
-    success: bool
 
     name: Literal["crawl.finish"] = field(default="crawl.finish", init=False)
 

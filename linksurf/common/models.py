@@ -132,6 +132,10 @@ class HTTPResponseSummary:
         return 200 <= self.status_code < 300
 
     @property
+    def is_redirect(self) -> bool:
+        return self.status_code in [301, 302, 303, 307, 308]
+
+    @property
     def content_type(self) -> str | None:
         return self.headers.get("content-type")
 
@@ -232,8 +236,10 @@ class ComponentExecution:
 class CrawlStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
+    SKIPPED = "skipped"
+    REDIRECTED = "redirected"
     ERRORED = "errored"
-    FINISHED = "finished"
+    SUCCEEDED = "succeeded"
 
 
 @dataclass

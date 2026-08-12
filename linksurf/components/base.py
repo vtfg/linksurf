@@ -443,14 +443,22 @@ class Component:
         if metadata:
             fields["metadata"] = metadata
 
-        # no error and not published onward -> crawl attempt is over
-        # either by completion (last stage) or skipped due to a filter or deduplicator
         if error is not None:
             status = CrawlStatus.ERRORED
         elif payload.published:
+            # payload was forwarded to the next pipeline stage
             status = CrawlStatus.IN_PROGRESS
+        elif payload.response is not None and payload.response.is_redirect:
+            # redirects in Downloader causes a crawl to stop and the new URL be sent to Frontier (if < MAX_REDIRECTS)
+            status = CrawlStatus.REDIRECTED
+        elif self.FINAL:
+            # here can have an edge case when the final component early-exited
+            # won't happen now because Storage has no filters, but gotta be careful
+            status = CrawlStatus.SUCCEEDED
         else:
-            status = CrawlStatus.FINISHED
+            # early-exit with no error
+            # happens when a payload was filtered or deduplicated
+            status = CrawlStatus.SKIPPED
 
         fields["status"] = status.value
 
@@ -460,13 +468,10 @@ class Component:
             Logger().error("component.error", component=self.NAME, message="Failed to save crawl execution.",
                            exception=str(e))
 
-        # TODO: Implement a concise pipeline
-        success = status == CrawlStatus.FINISHED and self.FINAL
-
         if status != CrawlStatus.IN_PROGRESS:
             await EventBus().emit(
                 CrawlFinishEvent(correlation_id=payload.correlation_id, id=payload.crawl_id, component=self.NAME,
-                                 url=payload.url.address, status=status, success=success))
+                                 url=payload.url.address, status=status))
 
 
 class ConsumerComponent(Component):
