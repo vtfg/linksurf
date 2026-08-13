@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import functools
 import mimetypes
@@ -21,7 +19,7 @@ from linksurf.components.storage import Storage
 from linksurf.events.bus import EventBus
 from linksurf.events.listeners import Listener, BetterStackListener
 from linksurf.events.listeners import LoggingListener
-from linksurf.extensions import Extension
+from linksurf.extensions import Extension, VisualizationExtension
 from linksurf.logger import Logger
 from linksurf.services import Services
 from linksurf.utils.env import get_env
@@ -87,7 +85,9 @@ class Linksurf:
                 host=get_env("BETTERSTACK_HOST")
             )
         ]
-        self.extensions: list[Extension] = []
+        self.extensions: list[Extension] = [
+            VisualizationExtension(self, self.settings, self.services),
+        ]
 
     async def start(self, seed: Seed) -> None:
         Logger().info("application.start")
@@ -160,10 +160,20 @@ class Linksurf:
 
     async def shutdown(self) -> None:
         for extension in self.extensions:
-            await extension.on_stop()
+            try:
+                await extension.on_stop()
+            except:
+                Logger().exception("extension.error", error="Extension stop failed.")
+            else:
+                Logger().info("extension.stop", extension=type(extension).__name__)
 
         for component in self.components:
-            await component.on_stop()
+            try:
+                await component.on_stop()
+            except:
+                Logger().exception("component.error", error="Component stop failed.")
+            else:
+                Logger().info("component.stop", component=component.NAME)
 
         try:
             await self.broker.disconnect()

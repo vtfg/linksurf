@@ -21,6 +21,7 @@ dependencies = [
     "aio-pika (>=9.6.2,<10.0.0)",
     "pysocks (>=1.7.1,<2.0.0)",
     "langdetect (>=1.0.9,<2.0.0)",
+    "aiosqlite (>=0.22.1,<0.23.0)",
 ]
 
 

@@ -17,7 +17,7 @@ class URL:
 
         self.scheme = split.scheme
         self.domain = split.hostname  # domain only
-        self._netloc = split.netloc  # domain:port
+        self.netloc = split.netloc  # domain:port (default port removed via normalization)
         self.path = split.path
         self.query = split.query
         self.fragment = split.fragment
@@ -29,7 +29,7 @@ class URL:
 
     @property
     def address(self):
-        return urlunsplit((self.scheme, self._netloc, self.path, self.query, self.fragment))
+        return urlunsplit((self.scheme, self.netloc, self.path, self.query, self.fragment))
 
     @property
     def hash(self):
