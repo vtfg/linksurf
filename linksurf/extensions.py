@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-import aiosqlite
+import asyncpg
 
 from linksurf.common.models import URL, CrawlStatus
 from linksurf.common.settings import Settings
 from linksurf.events import Event
 from linksurf.events.listeners import Listener
 from linksurf.services import Services, Service
+from linksurf.utils.env import get_env
 
 if TYPE_CHECKING:
     from linksurf.application import Linksurf
@@ -66,49 +67,46 @@ class VisualizationExtension(Extension):
     class VisualizationDatabase(Service):
         NAME = "VisualizationDatabase"
 
-        _client: aiosqlite.Connection = None
-
         ROOT_NODE = "/"
 
-        def __init__(self):
+        def __init__(self, url: str):
             super().__init__()
 
+            self.url = url
             self._lock = asyncio.Lock()
+            self._pool: asyncpg.Pool | None = None
 
         async def on_start(self, settings: Settings):
-            self._client = await aiosqlite.connect("visualization.db")
-            self._client.row_factory = aiosqlite.Row
-
-            # WAL lets others applications read the file while writing
-            await self._client.execute("PRAGMA journal_mode = WAL")
+            pool = await asyncpg.create_pool(self.url, min_size=1, max_size=10)
 
             # a cluster represents a netloc ("example.com", "example.com:8080")
             # scheme is left out because most websites redirect http to https
             # port is kept (if different from default) because can point to a different service
-            await self._client.execute("""
-                CREATE TABLE IF NOT EXISTS clusters (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
-                )
-            """)
+            async with pool.acquire() as connection:
+                await connection.execute("""
+                    CREATE TABLE IF NOT EXISTS clusters (
+                        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        name TEXT NOT NULL UNIQUE
+                    )
+                """)
 
-            # a node represents a resource (HTML, PDF, etc.)
-            await self._client.execute("""
-                CREATE TABLE IF NOT EXISTS nodes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    cluster_id INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
-                    status TEXT NOT NULL,
-                    parent_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
-                    UNIQUE (cluster_id, name)
-                )
-            """)
+                # a node represents a resource (HTML, PDF, etc.)
+                await connection.execute("""
+                    CREATE TABLE IF NOT EXISTS nodes (
+                        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        cluster_id INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+                        status TEXT NOT NULL,
+                        parent_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
+                        UNIQUE (cluster_id, name)
+                    )
+                """)
 
-            await self._client.commit()
+            self._pool = pool
 
         async def on_stop(self):
-            if self._client is not None:
-                await self._client.close()
+            if self._pool is not None:
+                await self._pool.close()
 
         async def upsert_node(self, url: URL, status: CrawlStatus | str = CrawlStatus.PENDING):
             """
@@ -118,89 +116,81 @@ class VisualizationExtension(Extension):
             The tree is recomputed based on the prefix.
             """
 
-            if self._client is None:
+            if self._pool is None:
                 raise RuntimeError("Service not started.")
 
             name = self._node_name(url)
             status = str(status)
 
-            async with self._lock:
-                cluster_id = await self._upsert_cluster(url.netloc)
+            async with self._lock, self._pool.acquire() as connection, connection.transaction():
+                cluster_id = await self._upsert_cluster(connection, url.netloc)
 
                 if name == self.ROOT_NODE:
-                    await self._upsert_root(cluster_id, status)
-
-                    await self._client.commit()
+                    await self._upsert_root(connection, cluster_id, status)
 
                     return
 
-                root_id = await self._upsert_root(cluster_id)
+                root_id = await self._upsert_root(connection, cluster_id)
 
-                async with self._client.execute(
-                        "SELECT id, parent_id FROM nodes WHERE cluster_id = ? AND name = ?",
-                        (cluster_id, name)) as cursor:
-                    existing = await cursor.fetchone()
+                existing = await connection.fetchrow(
+                    "SELECT id, parent_id FROM nodes WHERE cluster_id = $1 AND name = $2",
+                    cluster_id, name)
 
                 # already placed in the tree, so only the status can have changed
                 # ignores if node's status is succeeded, which means a URL collapsing to the same node don't move it back to pending
                 # can happen if http URL redirects to https keeping the same path when the https version was already successfully crawled
                 if existing is not None and existing["parent_id"] is not None:
-                    await self._client.execute(
-                        "UPDATE nodes SET status = ? WHERE id = ? AND status != ?",
-                        (status, existing["id"], CrawlStatus.SUCCEEDED.value))
-
-                    await self._client.commit()
+                    await connection.execute(
+                        "UPDATE nodes SET status = $1 WHERE id = $2 AND status != $3",
+                        status, existing["id"], CrawlStatus.SUCCEEDED.value)
 
                     return
 
-                parent_id = await self._find_parent(cluster_id, name, root_id)
+                parent_id = await self._find_parent(connection, cluster_id, name, root_id)
 
                 # the parent is always taken, but a succeeded status is kept. The update has to fire
                 # either way, otherwise RETURNING yields no row to adopt the descendants with
-                async with self._client.execute("""
-                    INSERT INTO nodes (name, cluster_id, status, parent_id) VALUES (?, ?, ?, ?)
-                    ON CONFLICT(cluster_id, name)
+                node_id = await connection.fetchval("""
+                    INSERT INTO nodes (name, cluster_id, status, parent_id) VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (cluster_id, name)
                     DO UPDATE SET
                         parent_id = excluded.parent_id,
-                        status = CASE WHEN nodes.status = ? THEN nodes.status ELSE excluded.status END
+                        status = CASE WHEN nodes.status = $5 THEN nodes.status ELSE excluded.status END
                     RETURNING id
-                """, (name, cluster_id, status, parent_id, CrawlStatus.SUCCEEDED.value)) as cursor:
-                    node_id = (await cursor.fetchone())["id"]
+                """, name, cluster_id, status, parent_id, CrawlStatus.SUCCEEDED.value)
 
-                await self._adopt_descendants(cluster_id, name, node_id)
+                await self._adopt_descendants(connection, cluster_id, name, node_id)
 
-                await self._client.commit()
-
-        async def _upsert_cluster(self, netloc: str) -> int:
+        async def _upsert_cluster(self, connection: asyncpg.Connection, netloc: str) -> int:
             """
             Upserts and returns the id of the cluster holding `netloc`.
             """
 
-            async with self._client.execute("""
-                INSERT INTO clusters (name) VALUES (?)
-                ON CONFLICT(name) DO UPDATE SET name = excluded.name
+            return await connection.fetchval("""
+                INSERT INTO clusters (name) VALUES ($1)
+                ON CONFLICT (name) DO UPDATE SET name = excluded.name
                 RETURNING id
-            """, (netloc,)) as cursor:
-                return (await cursor.fetchone())["id"]
+            """, netloc)
 
-        async def _upsert_root(self, cluster_id: int, status: str | None = None) -> int:
+        async def _upsert_root(self, connection: asyncpg.Connection, cluster_id: int,
+                               status: str | None = None) -> int:
             """
             Upserts and returns the cluster's root ("/") node id.
 
             The root is virtual: it anchors the cluster's tree whether it is crawled or even exists.
             """
 
-            async with self._client.execute("""
-                INSERT INTO nodes (name, cluster_id, status, parent_id) VALUES (?, ?, ?, NULL)
-                ON CONFLICT(cluster_id, name)
+            return await connection.fetchval("""
+                INSERT INTO nodes (name, cluster_id, status, parent_id) VALUES ($1, $2, $3, NULL)
+                ON CONFLICT (cluster_id, name)
                 DO UPDATE SET
-                    status = CASE WHEN nodes.status = ? THEN nodes.status ELSE COALESCE(?, nodes.status) END
+                    status = CASE WHEN nodes.status = $4 THEN nodes.status ELSE COALESCE($5, nodes.status) END
                 RETURNING id
-            """, (self.ROOT_NODE, cluster_id, status or CrawlStatus.PENDING.value,
-                  CrawlStatus.SUCCEEDED.value, status)) as cursor:
-                return (await cursor.fetchone())["id"]
+            """, self.ROOT_NODE, cluster_id, status or CrawlStatus.PENDING.value,
+                                             CrawlStatus.SUCCEEDED.value, status)
 
-        async def _find_parent(self, cluster_id: int, name: str, root_id: int) -> int:
+        async def _find_parent(self, connection: asyncpg.Connection, cluster_id: int, name: str,
+                               root_id: int) -> int:
             """
             Returns the id of the directory holding this node, or the nearest one that exists.
 
@@ -209,20 +199,17 @@ class VisualizationExtension(Extension):
             "/products/" wins over "/products" when both were crawled.
             """
 
-            ancestors = self._ancestor_names(name)
-            placeholders = ", ".join("?" * len(ancestors))
-
-            async with self._client.execute(f"""
+            parent_id = await connection.fetchval("""
                 SELECT id FROM nodes
-                WHERE cluster_id = ? AND name IN ({placeholders})
+                WHERE cluster_id = $1 AND name = ANY($2::text[])
                 ORDER BY LENGTH(name) DESC
                 LIMIT 1
-            """, (cluster_id, *ancestors)) as cursor:
-                row = await cursor.fetchone()
+            """, cluster_id, self._ancestor_names(name))
 
-            return row["id"] if row is not None else root_id
+            return parent_id if parent_id is not None else root_id
 
-        async def _adopt_descendants(self, cluster_id: int, name: str, node_id: int) -> None:
+        async def _adopt_descendants(self, connection: asyncpg.Connection, cluster_id: int,
+                                     name: str, node_id: int) -> None:
             """
             Hands this node every descendant that settled on a farther ancestor before it existed.
 
@@ -235,16 +222,16 @@ class VisualizationExtension(Extension):
             # excluded: "/products" and "/products/" are two resources side by side, not nested
             prefix = name if name.endswith("/") else f"{name}/"
 
-            # matched with substr() rather than LIKE because "_" is a LIKE wildcard,
+            # matched with starts_with() rather than LIKE because "_" is a LIKE wildcard,
             # and it's a perfectly ordinary character in a URL path
-            await self._client.execute("""
-                UPDATE nodes SET parent_id = ?
-                WHERE cluster_id = ?
-                  AND substr(name, 1, ?) = ?
-                  AND name != ?
-                  AND id != ?
-                  AND parent_id IN (SELECT id FROM nodes WHERE cluster_id = ? AND LENGTH(name) < ?)
-            """, (node_id, cluster_id, len(prefix), prefix, prefix, node_id, cluster_id, len(name)))
+            await connection.execute("""
+                UPDATE nodes SET parent_id = $1
+                WHERE cluster_id = $2
+                  AND starts_with(name, $3)
+                  AND name != $3
+                  AND id != $1
+                  AND parent_id IN (SELECT id FROM nodes WHERE cluster_id = $2 AND LENGTH(name) < $4)
+            """, node_id, cluster_id, prefix, len(name))
 
         def _node_name(self, url: URL) -> str:
             """
@@ -305,7 +292,7 @@ class VisualizationExtension(Extension):
     def __init__(self, application: Linksurf, settings: Settings, services: Services):
         super().__init__(application, settings, services)
 
-        self.database = self.VisualizationDatabase()
+        self.database = self.VisualizationDatabase(url=get_env("VISUALIZATION_DB_URL"))
         self.listener = self.VisualizationListener(self.database)
 
         application.listeners.append(self.listener)
