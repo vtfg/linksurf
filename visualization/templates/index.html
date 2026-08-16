@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Linksurf</title>
+    <style>
+        /* Light is the default; the dark set is swapped in via data-theme on <html>.
+           Canvas colours live in the THEMES table in the script - CSS only styles
+           the chrome (HUD, toolbar, tooltip). */
+        :root {
+            --bg: #f4f6f9;
+            --fg: #2a3440;
+            --muted: #8b98a8;
+            --panel: rgba(255, 255, 255, 0.84);
+            --border: rgba(40, 70, 110, 0.14);
+            --shadow: rgba(30, 50, 80, 0.07);
+            --btn: rgba(40, 70, 110, 0.04);
+            --btn-hover: rgba(60, 130, 220, 0.11);
+            --btn-hover-border: rgba(60, 130, 220, 0.45);
+            --ok: #17864f;
+            --warn: #b0721a;
+        }
+
+        :root[data-theme="dark"] {
+            --bg: #070a0f;
+            --fg: #cdd9e5;
+            --muted: #5b6b7d;
+            --panel: rgba(14, 20, 28, 0.82);
+            --border: rgba(120, 160, 200, 0.18);
+            --shadow: rgba(0, 0, 0, 0.35);
+            --btn: rgba(255, 255, 255, 0.04);
+            --btn-hover: rgba(120, 190, 255, 0.14);
+            --btn-hover-border: rgba(120, 190, 255, 0.5);
+            --ok: #7ee0a8;
+            --warn: #e0b87e;
+        }
+
+        html {
+            transition: background 0.25s;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--fg);
+            font: 13px/1.4 ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+        }
+
+        #stage {
+            position: fixed;
+            inset: 0;
+            display: block;
+            cursor: grab;
+        }
+
+        #stage:active {
+            cursor: grabbing;
+        }
+
+        #hud {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            padding: 12px 14px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 2px 14px var(--shadow);
+            pointer-events: none;
+            min-width: 210px;
+            max-width: 320px;
+        }
+
+        #hud h1 {
+            margin: 0 0 9px;
+            font-size: 11px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 2px 0;
+        }
+
+        .row span:first-child {
+            color: var(--muted);
+        }
+
+        .row span:last-child {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Swatches are painted from the same THEMES table the canvas uses, so a colour
+           can never drift between the legend and the dots it explains. */
+        #legend {
+            margin-top: 9px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px 10px;
+        }
+
+        .key {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .key i {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex: none;
+        }
+
+        .key b {
+            margin-left: auto;
+            color: var(--fg);
+            font-weight: 400;
+            font-variant-numeric: tabular-nums;
+        }
+
+        #status {
+            margin-top: 9px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            color: var(--ok);
+            word-break: break-word;
+        }
+
+        #status.error {
+            color: var(--warn);
+        }
+
+        /* Sits under the cursor rather than in the HUD: with thousands of dots on screen
+           the only way to tell which one you are pointing at is right there. */
+        #tip {
+            position: fixed;
+            display: none;
+            padding: 5px 8px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 2px 14px var(--shadow);
+            pointer-events: none;
+            white-space: nowrap;
+            font-size: 12px;
+        }
+
+        #tip span {
+            color: var(--muted);
+        }
+
+        #toolbar {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            display: flex;
+            gap: 8px;
+            padding: 8px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 2px 14px var(--shadow);
+        }
+
+        button {
+            font: inherit;
+            color: var(--fg);
+            background: var(--btn);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 13px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+
+        button:hover {
+            background: var(--btn-hover);
+            border-color: var(--btn-hover-border);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+
+<div id="hud">
+    <h1>Linksurf</h1>
+    <div class="row"><span>domains</span><span id="s-clusters">0</span></div>
+    <div class="row"><span>pages</span><span id="s-pages">0</span></div>
+    <div class="row"><span>largest</span><span id="s-largest">—</span></div>
+    <div id="legend"></div>
+    <div id="status">loading…</div>
+</div>
+
+<div id="tip"></div>
+
+<div id="toolbar">
+    <button id="btn-theme" title="Toggle light / dark (t)">Dark</button>
+    <button id="btn-recenter" title="Refit the viewport to every cluster (r)">Recenter</button>
+    <button id="btn-reload" title="Fetch the graph again (space)">Reload</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+    (function () {
+        "use strict";
+
+        const SOURCE = "/api/graph";
+
+        const RING = 34;                // px between hierarchy levels
+        const CLUSTER_MARGIN = 46;       // clear space held between neighbouring graphs
+        const COLLIDE_CUTOFF = 3500;    // drop node collision above this, for framerate
+        const DRAG_ALPHA = 0.3;         // energy held while a node is being dragged
+        const PRESETTLE = 150;          // ticks run before the first paint, so the graph opens already resolved instead of exploding outward
+
+        // Structure (links) is drawn in a neutral grey so colour on the canvas carries
+        // exactly one meaning: crawl status. Domains are told apart by position, not hue -
+        // a red-tinted graph would otherwise read as all-errors.
+        // Keys are CrawlStatus values, so whatever the crawler recorded is what gets painted.
+        const THEMES = {
+            light: {
+                bg: "#f4f6f9",
+                link: "rgba(64, 84, 106, 0.32)",
+                pick: "rgba(20, 30, 45, 0.55)",
+                status: {
+                    pending: "#a2aebb", in_progress: "#c2811a", succeeded: "#1f9d55",
+                    errored: "#d64545", redirected: "#2563eb", skipped: "#d6549b"
+                }
+            },
+            dark: {
+                bg: "#070a0f",
+                link: "rgba(150, 175, 200, 0.28)",
+                pick: "rgba(225, 238, 250, 0.7)",
+                status: {
+                    pending: "#5a6875", in_progress: "#e0b87e", succeeded: "#4ade80",
+                    errored: "#f87171", redirected: "#60a5fa", skipped: "#f472b6"
+                }
+            }
+        };
+
+        // order the legend reads in: how far a page got, from untouched to done
+        const STATUSES = ["pending", "in_progress", "redirected", "skipped", "errored", "succeeded"];
+
+        let theme = THEMES.light;
+
+        function applyTheme(name) {
+            theme = THEMES[name] || THEMES.light;
+            document.documentElement.dataset.theme = name;
+            document.getElementById("btn-theme").textContent = name === "dark" ? "Light" : "Dark";
+            drawLegend();
+            try {
+                localStorage.setItem("linksurf-theme", name);
+            } catch (e) { /* private mode */
+            }
+        }
+
+        function initialTheme() {
+            try {
+                const saved = localStorage.getItem("linksurf-theme");
+                if (saved === "light" || saved === "dark") return saved;
+            } catch (e) { /* ignore */
+            }
+            return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+
+        const canvas = document.getElementById("stage");
+        const ctx = canvas.getContext("2d");
+        let W = 0, H = 0, dpr = 1;
+
+        function resize() {
+            dpr = Math.min(window.devicePixelRatio || 1, 2);
+            W = window.innerWidth;
+            H = window.innerHeight;
+            canvas.width = Math.round(W * dpr);
+            canvas.height = Math.round(H * dpr);
+            canvas.style.width = W + "px";
+            canvas.style.height = H + "px";
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        window.addEventListener("resize", resize);
+        resize();
+
+        let clusters = [], nodes = [], links = [];
+
+        // Custom force: every page is pulled onto the ring matching its depth, measured
+        // from its own cluster's floating centre. Depth 0 (the root) targets radius 0, so
+        // it settles at the middle of its graph.
+        function forceDepthRadial(strength) {
+            let ns;
+
+            function force(alpha) {
+                for (let i = 0; i < ns.length; i++) {
+                    const n = ns[i];
+                    const d = n.cluster;
+                    const dx = n.x - d.x, dy = n.y - d.y;
+                    const r = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+                    const s = n.depth === 0 ? strength * 3 : strength;
+                    const k = ((n.depth * RING) - r) * s * alpha / r;
+                    n.vx += dx * k;
+                    n.vy += dy * k;
+                }
+            }
+
+            force.initialize = (_) => {
+                ns = _;
+            };
+            return force;
+        }
+
+        const collideForce = d3.forceCollide(3.4).strength(0.5).iterations(1);
+
+        const nodeRadius = (n) => (n.depth === 0 ? 5.5 : Math.max(1.6, 3.4 - n.depth * 0.32));
+
+        // Simulation over pages, shared by every cluster. Links only ever connect pages
+        // inside the same cluster, so the graphs stay distinct.
+        // alphaTarget stays 0: a snapshot is a fixed graph, so it is allowed to come to rest.
+        const nodeSim = d3.forceSimulation([])
+            .force("link", d3.forceLink([]).id((d) => d.id).distance(RING * 0.85).strength(0.55))
+            .force("charge", d3.forceManyBody().strength(-34).distanceMax(90))
+            .force("depth", forceDepthRadial(0.22))
+            .force("collide", collideForce)
+            .alphaDecay(0.03)
+            .velocityDecay(0.42)
+            .stop();
+
+        // Second, coarser simulation over the clusters themselves: each is a circle sized by
+        // its page count, and collision keeps neighbouring graphs from overlapping.
+        const clusterSim = d3.forceSimulation([])
+            .force("collide", d3.forceCollide((d) => d.r + CLUSTER_MARGIN).strength(0.9).iterations(2))
+            .force("x", d3.forceX(0).strength(0.014))
+            .force("y", d3.forceY(0).strength(0.014))
+            .alphaDecay(0.02)
+            .velocityDecay(0.55)
+            .stop();
+
+        function clusterRadius(d) {
+            return Math.max(RING * (d.maxDepth + 0.9), Math.sqrt(d.count) * 4.4) + 16;
+        }
+
+        // The API sends id references, because JSON cannot hold the cycles the layout
+        // needs. Rebuilding those into object references is the whole of the work here.
+        function load(data) {
+            const clusterById = new Map();
+
+            clusters = (data.clusters || []).map((c, i) => {
+                // phyllotaxis: spreads the graphs over the plane before collision runs, so the
+                // cluster sim tidies an arrangement instead of untangling a pile
+                const angle = i * 2.399963;
+                const radius = 150 * Math.sqrt(i);
+
+                const cluster = {
+                    id: c.id, name: c.name,
+                    count: c.count || 0, maxDepth: c.maxDepth || 0,
+                    nodes: [], root: null, r: 60,
+                    x: Math.cos(angle) * radius, y: Math.sin(angle) * radius
+                };
+
+                cluster.r = clusterRadius(cluster);
+                clusterById.set(cluster.id, cluster);
+                return cluster;
+            });
+
+            const nodeById = new Map();
+
+            nodes = (data.nodes || []).map((n) => {
+                const cluster = clusterById.get(n.cluster_id);
+                // start each page on the ring it belongs to, so the radial force only has to
+                // spread them around it rather than drag them out from the centre
+                const angle = Math.random() * Math.PI * 2;
+
+                const node = {
+                    id: n.id, name: n.name, status: n.status, depth: n.depth,
+                    cluster, parent: null,
+                    x: cluster.x + Math.cos(angle) * n.depth * RING,
+                    y: cluster.y + Math.sin(angle) * n.depth * RING
+                };
+
+                nodeById.set(node.id, node);
+                cluster.nodes.push(node);
+                if (node.depth === 0) cluster.root = node;
+                return node;
+            });
+
+            links = [];
+
+            for (const raw of data.nodes || []) {
+                if (raw.parent === null || raw.parent === undefined) continue;
+
+                const node = nodeById.get(raw.id);
+                node.parent = nodeById.get(raw.parent) || null;
+
+                if (node.parent) links.push({source: node.parent, target: node});
+            }
+
+            // a graph whose root was never crawled still needs an anchor for drag and layout
+            for (const cluster of clusters) {
+                if (!cluster.root) cluster.root = cluster.nodes[0] || null;
+            }
+
+            nodeSim.nodes(nodes);
+            nodeSim.force("link").links(links);
+            nodeSim.force("collide", nodes.length > COLLIDE_CUTOFF ? null : collideForce);
+            clusterSim.nodes(clusters);
+
+            hovered = dragged = null;
+            autoFit = true;
+            view = d3.zoomIdentity;
+            zoom.transform(d3.select(canvas), d3.zoomIdentity);
+
+            nodeSim.alpha(1);
+            clusterSim.alpha(1);
+
+            for (let i = 0; i < PRESETTLE; i++) {
+                nodeSim.tick();
+                clusterSim.tick();
+            }
+
+            updateHud();
+        }
+
+        let view = d3.zoomIdentity;
+        let autoFit = true;
+
+        const zoom = d3.zoom()
+            .scaleExtent([0.05, 4])
+            .on("zoom", (event) => {
+                if (event.sourceEvent) autoFit = false; // user took the wheel
+                view = event.transform;
+            });
+
+        let hovered = null, dragged = null;
+
+        // Pointer is in screen px; nodes live in world coords. Test in world space with a
+        // radius scaled by zoom, so the grab target stays ~11px on screen at any scale.
+        function nodeAt(px, py) {
+            const wx = view.invertX(px), wy = view.invertY(py);
+            const reach = 11 / view.k;
+            let best = null, bestD2 = reach * reach;
+            for (let i = 0; i < nodes.length; i++) {
+                const n = nodes[i];
+                const dx = n.x - wx, dy = n.y - wy, d2 = dx * dx + dy * dy;
+                if (d2 < bestD2) {
+                    bestD2 = d2;
+                    best = n;
+                }
+            }
+            return best;
+        }
+
+        const drag = d3.drag()
+            .container(canvas)
+            // d3-drag reports event.x/y in container (screen) space, so the subject has to be
+            // expressed there too - we map back to world space on each move.
+            .subject((event) => {
+                const n = nodeAt(event.x, event.y);
+                return n ? {x: view.applyX(n.x), y: view.applyY(n.y), node: n} : null;
+            })
+            .on("start", (event) => {
+                dragged = event.subject.node;
+                autoFit = false; // don't let the auto-fit yank the view mid-drag
+                nodeSim.alphaTarget(DRAG_ALPHA).alpha(Math.max(nodeSim.alpha(), DRAG_ALPHA));
+                // Remember where this graph belongs: it may barge into its neighbours during
+                // the drag, but it goes home on release.
+                const d = dragged.cluster;
+                d.homeX = d.x;
+                d.homeY = d.y;
+                clusterSim.alphaTarget(DRAG_ALPHA).alpha(Math.max(clusterSim.alpha(), DRAG_ALPHA));
+            })
+            .on("drag", (event) => {
+                const n = dragged;
+                if (!n) return;
+                n.fx = n.x = view.invertX(event.x); // fx pins it against the forces;
+                n.fy = n.y = view.invertY(event.y); // x/y so it tracks the cursor exactly
+            })
+            .on("end", () => {
+                if (dragged) {
+                    dragged.fx = dragged.fy = null; // release back to the layout
+                    const d = dragged.cluster;
+                    d.fx = d.fy = null;
+                    d.x = d.homeX;
+                    d.y = d.homeY;
+                    d.vx = d.vy = 0;
+                }
+                dragged = null;
+                nodeSim.alphaTarget(0);   // decay to rest rather than freezing mid-swing
+                clusterSim.alphaTarget(0);
+            });
+
+        // drag is installed first so that when it claims a mousedown on a node it stops
+        // propagation and zoom's pan never fires; empty space still pans.
+        d3.select(canvas).call(drag).call(zoom);
+
+        const tip = document.getElementById("tip");
+
+        canvas.addEventListener("mousemove", (event) => {
+            if (dragged) return;
+            hovered = nodeAt(event.clientX, event.clientY);
+            canvas.style.cursor = hovered ? "pointer" : "";
+
+            if (!hovered) {
+                tip.style.display = "none";
+                return;
+            }
+
+            tip.textContent = "";
+            const label = document.createElement("b");
+            label.textContent = hovered.cluster.name + hovered.name;
+            const meta = document.createElement("span");
+            meta.textContent = "  " + hovered.status + " · depth " + hovered.depth;
+            tip.append(label, meta);
+
+            tip.style.display = "block";
+            // keep the label inside the viewport when the cursor nears the right edge
+            const flip = event.clientX + tip.offsetWidth + 26 > W;
+            tip.style.left = (flip ? event.clientX - tip.offsetWidth - 14 : event.clientX + 14) + "px";
+            tip.style.top = (event.clientY + 14) + "px";
+        });
+
+        canvas.addEventListener("mouseleave", () => {
+            hovered = null;
+            tip.style.display = "none";
+        });
+
+        function fitStep() {
+            if (!autoFit || !clusters.length) return;
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+            for (const d of clusters) {
+                x0 = Math.min(x0, d.x - d.r);
+                x1 = Math.max(x1, d.x + d.r);
+                y0 = Math.min(y0, d.y - d.r);
+                y1 = Math.max(y1, d.y + d.r);
+            }
+            const pad = 60;
+            const k = Math.min(4, Math.min((W - pad) / Math.max(x1 - x0, 1), (H - pad) / Math.max(y1 - y0, 1)));
+            const target = d3.zoomIdentity
+                .translate(W / 2 - ((x0 + x1) / 2) * k, H / 2 - ((y0 + y1) / 2) * k)
+                .scale(k);
+            const e = 0.06; // ease toward the target so the fit never snaps
+            const next = d3.zoomIdentity
+                .translate(view.x + (target.x - view.x) * e, view.y + (target.y - view.y) * e)
+                .scale(view.k + (target.k - view.k) * e);
+            zoom.transform(d3.select(canvas), next); // keeps d3-zoom's own state in sync
+        }
+
+        function draw() {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.fillStyle = theme.bg;
+            ctx.fillRect(0, 0, W, H);
+            ctx.save();
+            ctx.translate(view.x, view.y);
+            ctx.scale(view.k, view.k);
+
+            // Links are all one colour, so the whole crawl is a single path and a single
+            // stroke - no need to batch per cluster.
+            ctx.lineWidth = Math.max(0.4, 0.9 / view.k);
+            ctx.strokeStyle = theme.link;
+            ctx.beginPath();
+            for (const n of nodes) {
+                if (!n.parent) continue;
+                ctx.moveTo(n.parent.x, n.parent.y);
+                ctx.lineTo(n.x, n.y);
+            }
+            ctx.stroke();
+
+            for (const n of nodes) {
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, nodeRadius(n), 0, Math.PI * 2);
+                ctx.fillStyle = theme.status[n.status] || theme.status.pending;
+                ctx.fill();
+            }
+
+            const hot = dragged || hovered;
+            if (hot) {
+                ctx.beginPath();
+                ctx.arc(hot.x, hot.y, nodeRadius(hot) + 5 / view.k, 0, Math.PI * 2);
+                ctx.strokeStyle = theme.pick;
+                ctx.lineWidth = 1.5 / view.k;
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        const el = {
+            clusters: document.getElementById("s-clusters"),
+            pages: document.getElementById("s-pages"),
+            largest: document.getElementById("s-largest"),
+            legend: document.getElementById("legend"),
+            status: document.getElementById("status")
+        };
+
+        function drawLegend() {
+            const counts = new Map();
+            for (const n of nodes) counts.set(n.status, (counts.get(n.status) || 0) + 1);
+
+            el.legend.textContent = "";
+
+            for (const status of STATUSES) {
+                if (nodes.length && !counts.has(status)) continue; // hide what this crawl never hit
+
+                const key = document.createElement("div");
+                key.className = "key";
+
+                const swatch = document.createElement("i");
+                swatch.style.background = theme.status[status];
+
+                const label = document.createElement("span");
+                label.textContent = status.replace("_", " ");
+
+                const count = document.createElement("b");
+                count.textContent = counts.get(status) || 0;
+
+                key.append(swatch, label, count);
+                el.legend.append(key);
+            }
+        }
+
+        function updateHud(generatedAt) {
+            let big = null;
+            for (const d of clusters) if (!big || d.count > big.count) big = d;
+
+            el.clusters.textContent = clusters.length;
+            el.pages.textContent = nodes.length;
+            el.largest.textContent = big ? big.count + " pages" : "—";
+
+            drawLegend();
+
+            el.status.classList.remove("error");
+            el.status.textContent = "● " + new Date().toLocaleTimeString();
+        }
+
+        function showError(message) {
+            el.status.classList.add("error");
+            el.status.textContent = message;
+        }
+
+        function frame() {
+            // Ticking stops once the layout is at rest: a settled snapshot should cost nothing
+            // beyond the redraw that interaction needs.
+            if (dragged || nodeSim.alpha() > nodeSim.alphaMin()) {
+                nodeSim.tick();
+                clusterSim.tick();
+            }
+            fitStep();
+            draw();
+            requestAnimationFrame(frame);
+        }
+
+        // ----------------------------------------------------------------- controls
+        const toggleTheme = () =>
+            applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+
+        function reload() {
+            el.status.classList.remove("error");
+            el.status.textContent = "loading…";
+
+            // no-store, or the browser will happily hand back the graph it fetched last time
+            fetch(SOURCE, {cache: "no-store"})
+                .then((response) => {
+                    if (!response.ok) throw new Error(SOURCE + " — HTTP " + response.status);
+                    return response.json();
+                })
+                .then(load)
+                .catch((error) => showError(error.message));
+        }
+
+        document.getElementById("btn-theme").addEventListener("click", toggleTheme);
+        document.getElementById("btn-recenter").addEventListener("click", () => {
+            autoFit = true;
+        });
+        document.getElementById("btn-reload").addEventListener("click", reload);
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "t") toggleTheme();
+            if (e.key === "r") autoFit = true;
+            if (e.code === "Space") {
+                e.preventDefault();
+                reload();
+            }
+        });
+
+        applyTheme(initialTheme());
+        requestAnimationFrame(frame);
+        reload();
+    })();
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict, deque
 from collections.abc import AsyncIterable
 from datetime import datetime
 from typing import Annotated, Union
@@ -6,7 +7,9 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
+from fastapi.templating import Jinja2Templates
 from pydantic import Field
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, SQLModel, col, create_engine, select, func
@@ -34,15 +37,76 @@ STATUS_BY_EVENT = {
 
 app = FastAPI()
 
+templates = Jinja2Templates(directory="visualization/templates")
+
 
 @app.on_event("startup")
 def on_startup():
     SQLModel.metadata.create_all(engine)
 
 
+@app.get("/", response_class=HTMLResponse)
+async def get_index(request: Request):
+    return templates.TemplateResponse(request, "index.html")
+
+
 @app.get("/api/health")
 def health():
     return "ok"
+
+
+@app.get("/api/graph")
+def get_graph():
+    with Session(engine) as session:
+        rows = session.exec(
+            select(Node.id, Node.name, Node.status, Node.parent_id, Cluster.id, Cluster.name)
+            .join(Cluster, col(Node.cluster_id) == Cluster.id)
+            .order_by(col(Node.id))
+        ).all()
+
+    children = defaultdict(list)
+    roots = []
+
+    for node_id, _, _, parent_id, _, _ in rows:
+        if parent_id is None:
+            roots.append(node_id)
+        else:
+            children[parent_id].append(node_id)
+
+    # depth follows the edges the canvas actually draws: a page whose intermediate directories
+    # were never crawled hangs off a nearer ancestor, and its ring has to match that edge
+    depths = {}
+    queue = deque((node_id, 0) for node_id in roots)
+
+    while queue:
+        node_id, depth = queue.popleft()
+
+        depths[node_id] = depth
+
+        for child in children[node_id]:
+            queue.append((child, depth + 1))
+
+    clusters: dict[int, dict] = {}
+    nodes = []
+
+    for node_id, name, status, parent_id, cluster_id, cluster_name in rows:
+        depth = depths.get(node_id, 0)
+
+        cluster = clusters.setdefault(
+            cluster_id, {"id": cluster_id, "name": cluster_name, "count": 0, "maxDepth": 0})
+        cluster["count"] += 1
+        cluster["maxDepth"] = max(cluster["maxDepth"], depth)
+
+        nodes.append({
+            "id": node_id,
+            "cluster_id": cluster_id,
+            "parent": parent_id,
+            "name": name,
+            "depth": depth,
+            "status": status,
+        })
+
+    return {"clusters": list(clusters.values()), "nodes": nodes}
 
 
 @app.post("/api/event")
