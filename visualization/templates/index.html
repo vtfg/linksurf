@@ -230,6 +230,8 @@
         "use strict";
 
         const SOURCE = "/api/graph";
+        const STREAM = "/api/stream";
+        const RESYNC_DELAY = 400;   // ms to coalesce reload triggers from one burst
 
         const RING = 34;                // px between hierarchy levels
         const CLUSTER_MARGIN = 46;       // clear space held between neighbouring graphs
@@ -307,6 +309,9 @@
 
         let clusters = [], nodes = [], links = [];
 
+        // kept alive between loads so a streamed update can find what it refers to
+        let clusterById = new Map(), nodeById = new Map();
+
         // Custom force: every page is pulled onto the ring matching its depth, measured
         // from its own cluster's floating centre. Depth 0 (the root) targets radius 0, so
         // it settles at the middle of its graph.
@@ -365,7 +370,7 @@
         // The API sends id references, because JSON cannot hold the cycles the layout
         // needs. Rebuilding those into object references is the whole of the work here.
         function load(data) {
-            const clusterById = new Map();
+            clusterById = new Map();
 
             clusters = (data.clusters || []).map((c, i) => {
                 // phyllotaxis: spreads the graphs over the plane before collision runs, so the
@@ -385,7 +390,7 @@
                 return cluster;
             });
 
-            const nodeById = new Map();
+            nodeById = new Map();
 
             nodes = (data.nodes || []).map((n) => {
                 const cluster = clusterById.get(n.cluster_id);
@@ -441,6 +446,128 @@
             }
 
             updateHud();
+        }
+
+        // Rebuilds the link array and every depth from the parent references. Called after a
+        // structural change, since re-parenting one node moves its whole subtree between rings.
+        function rebuildStructure() {
+            links = [];
+
+            const children = new Map();
+
+            for (const node of nodes) {
+                if (!node.parent) continue;
+
+                links.push({source: node.parent, target: node});
+
+                if (!children.has(node.parent)) children.set(node.parent, []);
+                children.get(node.parent).push(node);
+            }
+
+            for (const cluster of clusters) {
+                const queue = cluster.root ? [[cluster.root, 0]] : [];
+                let maxDepth = 0;
+
+                while (queue.length) {
+                    const [node, depth] = queue.pop();
+                    node.depth = depth;
+                    if (depth > maxDepth) maxDepth = depth;
+
+                    for (const child of children.get(node) || []) queue.push([child, depth + 1]);
+                }
+
+                cluster.count = cluster.nodes.length;
+                cluster.maxDepth = maxDepth;
+                cluster.r = clusterRadius(cluster);
+            }
+
+            nodeSim.nodes(nodes);
+            nodeSim.force("link").links(links);
+            nodeSim.force("collide", nodes.length > COLLIDE_CUTOFF ? null : collideForce);
+            clusterSim.nodes(clusters);
+        }
+
+        // Applies one streamed update in place, so the layout keeps its positions instead of
+        // being thrown away and re-settled on every crawl event.
+        //
+        // Returns false when the update refers to something this page has never seen - a node
+        // whose parent or cluster is missing, which happens if an update was dropped or arrived
+        // between the graph being fetched and the stream being subscribed to. There is no way to
+        // place such a node, and guessing would bend the tree, so the caller reloads instead.
+        function merge(update) {
+            for (const c of update.clusters || []) {
+                if (clusterById.has(c.id)) continue;
+
+                const i = clusters.length;
+                const angle = i * 2.399963;
+                const radius = 150 * Math.sqrt(i);
+
+                const cluster = {
+                    id: c.id, name: c.name, count: 0, maxDepth: 0,
+                    nodes: [], root: null, r: 60,
+                    x: Math.cos(angle) * radius, y: Math.sin(angle) * radius
+                };
+
+                cluster.r = clusterRadius(cluster);
+                clusterById.set(cluster.id, cluster);
+                clusters.push(cluster);
+            }
+
+            let structural = false;
+
+            for (const n of update.nodes || []) {
+                const cluster = clusterById.get(n.cluster_id);
+                if (!cluster) return false;
+
+                const parent = n.parent === null || n.parent === undefined
+                    ? null : nodeById.get(n.parent);
+
+                // a parent we don't hold means the tree would be wrong, not just incomplete
+                if (n.parent !== null && n.parent !== undefined && !parent) return false;
+
+                let node = nodeById.get(n.id);
+
+                if (!node) {
+                    // open where its parent already sits, so it grows out of the tree rather
+                    // than flying in from the origin
+                    const anchor = parent || cluster;
+                    const angle = Math.random() * Math.PI * 2;
+
+                    node = {
+                        id: n.id, name: n.name, status: n.status,
+                        depth: parent ? parent.depth + 1 : 0,
+                        cluster, parent,
+                        x: anchor.x + Math.cos(angle) * RING * 0.6,
+                        y: anchor.y + Math.sin(angle) * RING * 0.6
+                    };
+
+                    nodeById.set(node.id, node);
+                    nodes.push(node);
+                    cluster.nodes.push(node);
+
+                    if (!parent) cluster.root = node;
+
+                    structural = true;
+                } else {
+                    node.status = n.status;
+
+                    if (node.parent !== parent) {
+                        node.parent = parent;
+                        structural = true;
+                    }
+                }
+            }
+
+            if (structural) {
+                rebuildStructure();
+                // enough energy to settle what moved, not enough to relaunch the whole layout
+                nodeSim.alpha(Math.max(nodeSim.alpha(), 0.25));
+                clusterSim.alpha(Math.max(clusterSim.alpha(), 0.12));
+            }
+
+            updateHud();
+
+            return true;
         }
 
         let view = d3.zoomIdentity;
@@ -680,7 +807,7 @@
             el.status.textContent = "loading…";
 
             // no-store, or the browser will happily hand back the graph it fetched last time
-            fetch(SOURCE, {cache: "no-store"})
+            return fetch(SOURCE, {cache: "no-store"})
                 .then((response) => {
                     if (!response.ok) throw new Error(SOURCE + " — HTTP " + response.status);
                     return response.json();
@@ -688,6 +815,50 @@
                 .then(load)
                 .catch((error) => showError(error.message));
         }
+
+        // An update we can't place means this page's copy has drifted, so the fix is to take the
+        // graph again. Debounced, because the burst that exposed the gap usually carries more of
+        // the same, and each one would otherwise queue its own reload.
+        let resyncTimer = null;
+
+        function resync() {
+            if (resyncTimer) return;
+
+            resyncTimer = setTimeout(() => {
+                resyncTimer = null;
+                reload();
+            }, RESYNC_DELAY);
+        }
+
+        function subscribe() {
+            const stream = new EventSource(STREAM);
+
+            stream.addEventListener("graph", (message) => {
+                let update;
+
+                try {
+                    update = JSON.parse(message.data);
+                } catch (e) {
+                    return;
+                }
+
+                if (!merge(update)) resync();
+            });
+
+            // EventSource reconnects on its own, but whatever happened while it was gone was
+            // missed, so the graph has to be taken again once it is back
+            stream.addEventListener("open", () => {
+                if (streamed) resync();
+                streamed = true;
+            });
+
+            stream.addEventListener("error", () => {
+                el.status.classList.add("error");
+                el.status.textContent = "stream lost — reconnecting…";
+            });
+        }
+
+        let streamed = false;
 
         document.getElementById("btn-theme").addEventListener("click", toggleTheme);
         document.getElementById("btn-recenter").addEventListener("click", () => {
@@ -705,7 +876,7 @@
 
         applyTheme(initialTheme());
         requestAnimationFrame(frame);
-        reload();
+        reload().then(subscribe);
     })();
 </script>
 </body>

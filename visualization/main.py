@@ -1,7 +1,6 @@
 import asyncio
 from collections import defaultdict, deque
 from collections.abc import AsyncIterable
-from datetime import datetime
 from typing import Annotated, Union
 from urllib.parse import urlsplit
 
@@ -39,10 +38,64 @@ app = FastAPI()
 
 templates = Jinja2Templates(directory="visualization/templates")
 
+# one queue per connected browser. A slow client fills its own and starts losing updates
+# without holding anyone else up - it resyncs from /api/graph when it notices the gap
+subscribers: set[asyncio.Queue] = set()
+event_loop: asyncio.AbstractEventLoop | None = None
+
+MAX_PENDING_UPDATES = 1_000
+
+# how long an idle stream waits before looping round to check the browser is still there
+DISCONNECT_CHECK_SECONDS = 15
+
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
+    global event_loop
+
+    # send_event runs in a threadpool, so handing an update to the subscribers means crossing
+    # back onto the loop; this is where that loop can be captured
+    event_loop = asyncio.get_running_loop()
+
     SQLModel.metadata.create_all(engine)
+
+
+def node_update(node: Node) -> dict:
+    """
+    A node as the canvas consumes it, minus the depth: that follows from the parent, which the
+    browser already holds, and a re-parenting shifts a whole subtree's worth of them at once.
+    """
+
+    return {
+        "id": node.id,
+        "cluster_id": node.cluster_id,
+        "parent": node.parent_id,
+        "name": node.name,
+        "status": str(node.status),
+    }
+
+
+def broadcast(clusters: list[dict], nodes: list[dict]) -> None:
+    """
+    Hands every connected browser what this request changed.
+
+    Called from the threadpool send_event runs in, so each delivery is scheduled onto the loop
+    rather than touching the queues directly.
+    """
+
+    if not nodes or event_loop is None or not subscribers:
+        return
+
+    update = {"clusters": clusters, "nodes": nodes}
+
+    def deliver(queue: asyncio.Queue) -> None:
+        try:
+            queue.put_nowait(update)
+        except asyncio.QueueFull:
+            pass  # this browser is behind; the gap makes it reload the whole graph
+
+    for queue in list(subscribers):
+        event_loop.call_soon_threadsafe(deliver, queue)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -115,6 +168,12 @@ def send_event(event: CrawlEvent):
     name = node_name(event.url)
     status = getattr(event, "status", None) or STATUS_BY_EVENT.get(event.name, NodeStatus.PENDING)
 
+    # everything this request creates or moves, so a browser can apply it without refetching.
+    # The cluster and the root are included when they are made here, since nothing else will
+    # ever announce them
+    created_clusters: list[dict] = []
+    updates: dict[int, dict] = {}
+
     with Session(engine) as session:
         cluster = session.exec(select(Cluster).where(Cluster.name == netloc)).first()
 
@@ -124,6 +183,8 @@ def send_event(event: CrawlEvent):
             session.add(cluster)
             session.commit()
             session.refresh(cluster)
+
+            created_clusters.append({"id": cluster.id, "name": cluster.name})
 
         # the root is virtual: it anchors the cluster's tree whether it is crawled or even exists.
         root = session.exec(
@@ -135,6 +196,8 @@ def send_event(event: CrawlEvent):
             session.add(root)
             session.commit()
             session.refresh(root)
+
+            updates[root.id] = node_update(root)
 
         node = root if name == ROOT_NODE else session.exec(
             select(Node).where(Node.cluster_id == cluster.id, Node.name == name)).first()
@@ -149,6 +212,10 @@ def send_event(event: CrawlEvent):
                 session.add(node)
                 session.commit()
                 session.refresh(node)
+
+                updates[node.id] = node_update(node)
+
+            broadcast(created_clusters, list(updates.values()))
 
             return node
 
@@ -208,20 +275,36 @@ def send_event(event: CrawlEvent):
         session.commit()
         session.refresh(node)
 
+        updates[node.id] = node_update(node)
+
+        # an adoption moves edges the browser already drew, so the moved nodes have to travel
+        # with the new one - otherwise its tree keeps the old parents and quietly diverges
+        for descendant in descendants:
+            session.refresh(descendant)
+
+            updates[descendant.id] = node_update(descendant)
+
+        broadcast(created_clusters, list(updates.values()))
+
         return node
 
 
 @app.get("/api/stream", response_class=EventSourceResponse)
 async def stream_updates(request: Request) -> AsyncIterable[ServerSentEvent]:
-    while True:
-        if await request.is_disconnected():
-            break
+    queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=MAX_PENDING_UPDATES)
 
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subscribers.add(queue)
 
-        yield ServerSentEvent(data=f"Current server time: {current_time}")
+    try:
+        while not await request.is_disconnected():
+            try:
+                update = await asyncio.wait_for(queue.get(), timeout=DISCONNECT_CHECK_SECONDS)
+            except TimeoutError:
+                continue
 
-        await asyncio.sleep(1)
+            yield ServerSentEvent(event="graph", data=update)
+    finally:
+        subscribers.discard(queue)
 
 
 if __name__ == "__main__":
