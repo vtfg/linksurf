@@ -237,7 +237,13 @@
         const CLUSTER_MARGIN = 46;       // clear space held between neighbouring graphs
         const COLLIDE_CUTOFF = 3500;    // drop node collision above this, for framerate
         const DRAG_ALPHA = 0.3;         // energy held while a node is being dragged
+        const LINK_STRENGTH = 0.55;     // how rigidly a page is tied to its parent at rest
+        const DRAG_LINK_STRENGTH = 1;   // ...and while dragging, so neighbours come along
+        const IDLE_ALPHA = 0.035;       // energy the layout idles at, so nothing sits rigid
+        const CLUSTER_IDLE = 0.02;      // same, for the cluster-packing sim
         const PRESETTLE = 150;          // ticks run before the first paint, so the graph opens already resolved instead of exploding outward
+        const RIPPLE_MS = 700;          // how long a newly discovered page pings for
+        const HALO_FADE_MS = 900;       // how long a newly discovered cluster's bubble takes to appear
 
         // Structure (links) is drawn in a neutral grey so colour on the canvas carries
         // exactly one meaning: crawl status. Domains are told apart by position, not hue -
@@ -246,6 +252,7 @@
         const THEMES = {
             light: {
                 bg: "#f4f6f9",
+                halo: "rgba(64, 84, 106, 0.16)",
                 link: "rgba(64, 84, 106, 0.32)",
                 pick: "rgba(20, 30, 45, 0.55)",
                 status: {
@@ -255,6 +262,7 @@
             },
             dark: {
                 bg: "#070a0f",
+                halo: "rgba(150, 175, 200, 0.14)",
                 link: "rgba(150, 175, 200, 0.28)",
                 pick: "rgba(225, 238, 250, 0.7)",
                 status: {
@@ -266,6 +274,13 @@
 
         // order the legend reads in: how far a page got, from untouched to done
         const STATUSES = ["pending", "in_progress", "redirected", "skipped", "errored", "succeeded"];
+
+        // Scale a colour's alpha without disturbing the theme's own value.
+        function fade(css, mult) {
+            const c = d3.color(css);
+            c.opacity *= mult;
+            return c + "";
+        }
 
         let theme = THEMES.light;
 
@@ -312,6 +327,12 @@
         // kept alive between loads so a streamed update can find what it refers to
         let clusterById = new Map(), nodeById = new Map();
 
+        // nodes bucketed by status for drawing, and the few still rippling. Both are reused
+        // frame to frame: allocating either one 60 times a second is what a 6k-node graph
+        // cannot afford
+        const buckets = new Map();
+        let rippling = [];
+
         // Custom force: every page is pulled onto the ring matching its depth, measured
         // from its own cluster's floating centre. Depth 0 (the root) targets radius 0, so
         // it settles at the middle of its graph.
@@ -345,10 +366,11 @@
         // inside the same cluster, so the graphs stay distinct.
         // alphaTarget stays 0: a snapshot is a fixed graph, so it is allowed to come to rest.
         const nodeSim = d3.forceSimulation([])
-            .force("link", d3.forceLink([]).id((d) => d.id).distance(RING * 0.85).strength(0.55))
-            .force("charge", d3.forceManyBody().strength(-34).distanceMax(90))
+            .force("link", d3.forceLink([]).id((d) => d.id).distance(RING * 0.85).strength(LINK_STRENGTH))
+            .force("charge", d3.forceManyBody().strength(-34).distanceMax(70).theta(1.2))
             .force("depth", forceDepthRadial(0.22))
             .force("collide", collideForce)
+            .alphaTarget(IDLE_ALPHA)
             .alphaDecay(0.03)
             .velocityDecay(0.42)
             .stop();
@@ -359,6 +381,7 @@
             .force("collide", d3.forceCollide((d) => d.r + CLUSTER_MARGIN).strength(0.9).iterations(2))
             .force("x", d3.forceX(0).strength(0.014))
             .force("y", d3.forceY(0).strength(0.014))
+            .alphaTarget(CLUSTER_IDLE)
             .alphaDecay(0.02)
             .velocityDecay(0.55)
             .stop();
@@ -370,6 +393,7 @@
         // The API sends id references, because JSON cannot hold the cycles the layout
         // needs. Rebuilding those into object references is the whole of the work here.
         function load(data) {
+            rippling.length = 0;   // nothing in a full load is newly discovered
             clusterById = new Map();
 
             clusters = (data.clusters || []).map((c, i) => {
@@ -381,11 +405,15 @@
                 const cluster = {
                     id: c.id, name: c.name,
                     count: c.count || 0, maxDepth: c.maxDepth || 0,
-                    nodes: [], root: null, r: 60,
+                    nodes: [], root: null, r: 60, rDraw: 0,
+                    // born 0: these were already crawled before the page opened, so they are
+                    // drawn at rest rather than announcing themselves all at once
+                    born: 0,
                     x: Math.cos(angle) * radius, y: Math.sin(angle) * radius
                 };
 
                 cluster.r = clusterRadius(cluster);
+                cluster.rDraw = cluster.r;
                 clusterById.set(cluster.id, cluster);
                 return cluster;
             });
@@ -400,7 +428,7 @@
 
                 const node = {
                     id: n.id, name: n.name, status: n.status, depth: n.depth,
-                    cluster, parent: null,
+                    cluster, parent: null, born: 0,
                     x: cluster.x + Math.cos(angle) * n.depth * RING,
                     y: cluster.y + Math.sin(angle) * n.depth * RING
                 };
@@ -504,7 +532,7 @@
 
                 const cluster = {
                     id: c.id, name: c.name, count: 0, maxDepth: 0,
-                    nodes: [], root: null, r: 60,
+                    nodes: [], root: null, r: 60, rDraw: 0, born: performance.now(),
                     x: Math.cos(angle) * radius, y: Math.sin(angle) * radius
                 };
 
@@ -537,6 +565,9 @@
                         id: n.id, name: n.name, status: n.status,
                         depth: parent ? parent.depth + 1 : 0,
                         cluster, parent,
+                        // stamped once, on arrival. A later status change repaints the dot but
+                        // leaves this alone, so a page pings when it is found and not again
+                        born: performance.now(),
                         x: anchor.x + Math.cos(angle) * RING * 0.6,
                         y: anchor.y + Math.sin(angle) * RING * 0.6
                     };
@@ -544,6 +575,7 @@
                     nodeById.set(node.id, node);
                     nodes.push(node);
                     cluster.nodes.push(node);
+                    rippling.push(node);
 
                     if (!parent) cluster.root = node;
 
@@ -610,6 +642,9 @@
             .on("start", (event) => {
                 dragged = event.subject.node;
                 autoFit = false; // don't let the auto-fit yank the view mid-drag
+                // stiffen the edges for the duration, so a dragged page hauls its subtree with
+                // it instead of stretching away from a slack tree
+                nodeSim.force("link").strength(DRAG_LINK_STRENGTH);
                 nodeSim.alphaTarget(DRAG_ALPHA).alpha(Math.max(nodeSim.alpha(), DRAG_ALPHA));
                 // Remember where this graph belongs: it may barge into its neighbours during
                 // the drag, but it goes home on release.
@@ -634,8 +669,11 @@
                     d.vx = d.vy = 0;
                 }
                 dragged = null;
-                nodeSim.alphaTarget(0);   // decay to rest rather than freezing mid-swing
-                clusterSim.alphaTarget(0);
+                nodeSim.force("link").strength(LINK_STRENGTH);
+                // back to idle rather than a dead stop, so the released node drifts back
+                // onto its ring instead of staying wherever it was dropped
+                nodeSim.alphaTarget(IDLE_ALPHA);
+                clusterSim.alphaTarget(CLUSTER_IDLE);
             });
 
         // drag is installed first so that when it claims a mousedown on a node it stops
@@ -687,6 +725,10 @@
             const target = d3.zoomIdentity
                 .translate(W / 2 - ((x0 + x1) / 2) * k, H / 2 - ((y0 + y1) / 2) * k)
                 .scale(k);
+            // already there: skip the transform rather than dispatching a zoom event per frame
+            if (Math.abs(target.x - view.x) < 0.5 && Math.abs(target.y - view.y) < 0.5
+                && Math.abs(target.k - view.k) < 1e-4) return;
+
             const e = 0.06; // ease toward the target so the fit never snaps
             const next = d3.zoomIdentity
                 .translate(view.x + (target.x - view.x) * e, view.y + (target.y - view.y) * e)
@@ -695,12 +737,37 @@
         }
 
         function draw() {
+            const now = performance.now();
+
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.fillStyle = theme.bg;
             ctx.fillRect(0, 0, W, H);
             ctx.save();
             ctx.translate(view.x, view.y);
             ctx.scale(view.k, view.k);
+
+            // Cluster bubbles - the body the cluster sim collides with, made visible. Two things
+            // keep them calm:
+            //   · rDraw eases toward r, which otherwise steps out every time a page is added
+            //     and made the bubble pop wider each time.
+            //   · the circle is centred on the root page, not on x/y. The cluster sim owns x/y,
+            //     so a graph dragged by its nodes used to slide out from under its own bubble.
+            //     Anchored to the root it travels with the graph - and since releasing a node
+            //     clears fx/fy, the root springs back and the bubble returns with it.
+            ctx.lineWidth = 2 / view.k;
+
+            for (const cluster of clusters) {
+                cluster.rDraw += (cluster.r - cluster.rDraw) * 0.07;
+
+                const centre = cluster.root || cluster;
+                const age = Math.min(1, (now - cluster.born) / HALO_FADE_MS);
+
+                ctx.beginPath();
+                ctx.arc(centre.x, centre.y, cluster.rDraw, 0, Math.PI * 2);
+                // only pay for the alpha maths while a new graph is fading in
+                ctx.strokeStyle = age < 1 ? fade(theme.halo, age) : theme.halo;
+                // ctx.stroke();
+            }
 
             // Links are all one colour, so the whole crawl is a single path and a single
             // stroke - no need to batch per cluster.
@@ -714,11 +781,59 @@
             }
             ctx.stroke();
 
+            // One path per status instead of one per page. Every arc in a path shares a single
+            // fill(), so 6k rasterizer calls become six - by far the largest cost in this loop.
+            for (const bucket of buckets.values()) bucket.length = 0;
+
             for (const n of nodes) {
+                let bucket = buckets.get(n.status);
+
+                if (!bucket) buckets.set(n.status, bucket = []);
+
+                bucket.push(n);
+            }
+
+            for (const [status, bucket] of buckets) {
+                if (!bucket.length) continue;
+
                 ctx.beginPath();
-                ctx.arc(n.x, n.y, nodeRadius(n), 0, Math.PI * 2);
-                ctx.fillStyle = theme.status[n.status] || theme.status.pending;
+
+                for (const n of bucket) {
+                    const r = nodeRadius(n);
+                    // moveTo first, or the arc joins the previous one with a straight line
+                    ctx.moveTo(n.x + r, n.y);
+                    ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+                }
+
+                ctx.fillStyle = theme.status[status] || theme.status.pending;
                 ctx.fill();
+            }
+
+            // Ripples are drawn one at a time because each has its own radius and alpha, but
+            // only the handful still animating are visited - not every node on screen.
+            if (rippling.length) {
+                ctx.lineWidth = 1.4 / view.k;
+
+                let kept = 0;
+
+                for (const n of rippling) {
+                    const t = (now - n.born) / RIPPLE_MS;
+
+                    if (t >= 1) continue; // done: dropped from the list below
+
+                    const r = nodeRadius(n);
+
+                    ctx.beginPath();
+                    ctx.arc(n.x, n.y, r + t * 14, 0, Math.PI * 2);
+                    // read from the current fill, so a page that lands its result mid-ripple
+                    // finishes the ping in the colour it ended up
+                    ctx.strokeStyle = fade(theme.status[n.status] || theme.status.pending, (1 - t) * 0.75);
+                    ctx.stroke();
+
+                    rippling[kept++] = n;
+                }
+
+                rippling.length = kept;
             }
 
             const hot = dragged || hovered;
@@ -786,15 +901,39 @@
             el.status.textContent = message;
         }
 
+        let frames = 0;
+
         function frame() {
-            // Ticking stops once the layout is at rest: a settled snapshot should cost nothing
-            // beyond the redraw that interaction needs.
-            if (dragged || nodeSim.alpha() > nodeSim.alphaMin()) {
+            // The cluster sim's collision body sits at x/y while the bubble is drawn on the root.
+            // Pinning one to the other for the duration of a drag is what lets a dragged graph
+            // barge into its neighbours instead of leaving its own bubble behind.
+            if (dragged) {
+                const cluster = dragged.cluster;
+                const root = cluster.root;
+
+                if (root) {
+                    cluster.fx = root.x;
+                    cluster.fy = root.y;
+                }
+            }
+
+            // Both sims idle rather than stopping, so the graph keeps breathing and anything
+            // let go eases back onto its ring under the same forces that put it there. That
+            // never-settling energy is also what makes this the hot loop, so once the layout
+            // is merely drifting it runs at half rate - at idle speeds the difference is not
+            // visible, and it halves the cost of a graph that by design never stops.
+            frames++;
+
+            const busy = dragged || nodeSim.alpha() > IDLE_ALPHA * 1.5 || rippling.length;
+
+            if (busy || frames % 2 === 0) {
                 nodeSim.tick();
                 clusterSim.tick();
+
+                fitStep();
+                draw();
             }
-            fitStep();
-            draw();
+
             requestAnimationFrame(frame);
         }
 
