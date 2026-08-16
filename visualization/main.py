@@ -1,6 +1,7 @@
 import asyncio
 from collections import defaultdict, deque
 from collections.abc import AsyncIterable
+from pathlib import Path
 from typing import Annotated, Union
 from urllib.parse import urlsplit
 
@@ -19,9 +20,11 @@ from visualization.constants import ROOT_NODE
 from visualization.database import Cluster, Node, NodeStatus
 from visualization.utils import node_name, ancestor_names
 
-load_dotenv()
+PACKAGE_DIR = Path(__file__).resolve().parent
 
-engine = create_engine(get_env("VISUALIZATION_DB_URL"), echo=True)
+load_dotenv(PACKAGE_DIR / ".env")
+
+engine = create_engine(get_env("DATABASE_URL"), echo=True)
 
 CrawlEvent = Annotated[
     Union[CrawlPendingEvent, CrawlStartEvent, CrawlFinishEvent],
@@ -36,7 +39,7 @@ STATUS_BY_EVENT = {
 
 app = FastAPI()
 
-templates = Jinja2Templates(directory="visualization/templates")
+templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
 
 # one queue per connected browser. A slow client fills its own and starts losing updates
 # without holding anyone else up - it resyncs from /api/graph when it notices the gap

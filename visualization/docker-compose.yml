@@ -1,0 +1,56 @@
+name: linksurf-visualization
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: visualization
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    networks:
+      - network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U root -d visualization" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  visualization:
+    build:
+      # context is the project's root due to linksurf imports
+      context: ..
+      dockerfile: visualization/Dockerfile
+    container_name: visualization
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # host override
+      DATABASE_URL: postgresql://root:root@postgres:5432/visualization
+    ports:
+      - '8000:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - network
+    healthcheck:
+      test: [ "CMD", "python", "-c",
+              "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres:
+
+networks:
+  network:
+    driver: bridge
