@@ -94,15 +94,9 @@ services:
     environment:
       # host overrides when full deployment
       RABBITMQ_HOST: rabbitmq
-      MONGODB_URL: mongodb://root:root@mongodb:27017
       REDIS_HOST: redis
-      S3_ENDPOINT_URL: http://minio:9000
     depends_on:
-      mongodb:
-        condition: service_healthy
       redis:
-        condition: service_healthy
-      minio:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
