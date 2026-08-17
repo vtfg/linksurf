@@ -6,7 +6,7 @@ from typing import Annotated, Union
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.templating import Jinja2Templates
@@ -108,6 +108,12 @@ async def get_index(request: Request):
 
 @app.get("/api/health")
 def health():
+    try:
+        with Session(engine) as session:
+            session.exec(select(1))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database is unreachable.")
+
     return "ok"
 
 
