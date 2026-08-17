@@ -1,8 +1,11 @@
+name: linksurf
+
 services:
   mongodb:
     image: mongo
     container_name: mongodb
     restart: always
+    profiles: [ development ]
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: root
@@ -22,6 +25,7 @@ services:
     image: redis
     container_name: redis
     restart: always
+    profiles: [ development, production ]
     volumes:
       - redis:/data
     ports:
@@ -38,6 +42,7 @@ services:
     image: minio/minio
     container_name: minio
     restart: always
+    profiles: [ development ]
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -62,6 +67,7 @@ services:
     container_name: rabbitmq
     hostname: rabbitmq
     restart: always
+    profiles: [ development, production ]
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
@@ -82,20 +88,15 @@ services:
     build: .
     container_name: linksurf
     restart: no
+    profiles: [ production ]
     env_file:
       - .env
     environment:
       # host overrides when full deployment
       RABBITMQ_HOST: rabbitmq
-      MONGODB_URL: mongodb://root:root@mongodb:27017
       REDIS_HOST: redis
-      S3_ENDPOINT_URL: http://minio:9000
     depends_on:
-      mongodb:
-        condition: service_healthy
       redis:
-        condition: service_healthy
-      minio:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy

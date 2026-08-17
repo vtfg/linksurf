@@ -147,18 +147,22 @@ class Database(Service):
 
 
 class MongoDatabase(Database):
-    _client: AsyncMongoClient | None
-    _database: AsyncDatabase | None
-
     def __init__(self, url: str, name: str = "linksurf"):
         self.uri = url
         self.name = name
+        self._client: AsyncMongoClient | None = None
+        self._database: AsyncDatabase | None = None
 
     async def on_start(self, settings: Settings):
-        self._client = AsyncMongoClient(self.uri)
-        self._database = self._client[self.name]
+        client = AsyncMongoClient(self.uri)
+        database = client[self.name]
 
-        await self._client.aconnect()
+        await client.aconnect()
+
+        await client.admin.command('ping')
+
+        self._client = client
+        self._database = database
 
     async def on_stop(self):
         if self._client is not None:

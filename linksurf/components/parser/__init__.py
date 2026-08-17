@@ -63,7 +63,7 @@ class Parser(ConsumerComponent):
         matching_extractors = self.extractors_registry.match(payload.content.type, payload.url)
 
         if len(matching_extractors) == 0:
-            return Error("Content type not supported.", retriable=False)
+            return Error("No matching extractors for content.", retriable=False)
 
         extracted = {}
 

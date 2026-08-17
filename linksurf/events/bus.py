@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Any
+from typing import Callable, Awaitable
 
 from linksurf.events import Event
 from linksurf.logger import Logger
@@ -12,16 +12,18 @@ class EventBus:
     def __new__(cls) -> EventBus:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._listeners: dict[str, list[Callable[[Any], None]]] = {}
+            cls._listeners: dict[str, list[Callable[[Event], Awaitable[None]]]] = {}
 
         return cls._instance
 
-    def on(self, name: str, handler: Callable[[Any], None]) -> None:
+    def on(self, name: str, handler: Callable[[Event], Awaitable[None]]) -> None:
         self._listeners.setdefault(name, []).append(handler)
 
-    def emit(self, event: Event) -> None:
+    async def emit(self, event: Event) -> None:
         for handler in self._listeners.get(event.name, []) + self._listeners.get("*", []):
             try:
-                handler(event)
+                await handler(event)
             except Exception:
-                Logger().exception("listener.error", listener=str(handler))
+                listener = type(getattr(handler, "__self__", handler))
+
+                Logger().exception("listener.error", listener=listener.__name__)

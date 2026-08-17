@@ -17,7 +17,7 @@ class URL:
 
         self.scheme = split.scheme
         self.domain = split.hostname  # domain only
-        self._netloc = split.netloc  # domain:port
+        self.netloc = split.netloc  # domain:port (default port removed via normalization)
         self.path = split.path
         self.query = split.query
         self.fragment = split.fragment
@@ -29,7 +29,7 @@ class URL:
 
     @property
     def address(self):
-        return urlunsplit((self.scheme, self._netloc, self.path, self.query, self.fragment))
+        return urlunsplit((self.scheme, self.netloc, self.path, self.query, self.fragment))
 
     @property
     def hash(self):
@@ -132,6 +132,10 @@ class HTTPResponseSummary:
         return 200 <= self.status_code < 300
 
     @property
+    def is_redirect(self) -> bool:
+        return self.status_code in [301, 302, 303, 307, 308]
+
+    @property
     def content_type(self) -> str | None:
         return self.headers.get("content-type")
 
@@ -232,8 +236,10 @@ class ComponentExecution:
 class CrawlStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
+    SKIPPED = "skipped"
+    REDIRECTED = "redirected"
     ERRORED = "errored"
-    FINISHED = "finished"
+    SUCCEEDED = "succeeded"
 
 
 @dataclass

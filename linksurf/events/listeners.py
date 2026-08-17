@@ -23,14 +23,14 @@ def _truncate_list(value: Any) -> Any:
 class Listener:
     EVENTS: list[str] = ["*"]
 
-    def handle(self, event: Event) -> None:
+    async def handle(self, event: Event) -> None:
         pass
 
 
 class LoggingListener(Listener):
     EVENTS = ["*"]
 
-    def handle(self, event: Event) -> None:
+    async def handle(self, event: Event) -> None:
         exception = getattr(event, "exception", None)
         data = asdict(event)
         name = data.pop("name")
@@ -70,7 +70,7 @@ class BetterStackListener(Listener):
         self._logger.propagate = False
         self._logger.addHandler(handler)
 
-    def handle(self, event: Event) -> None:
+    async def handle(self, event: Event) -> None:
         exception = getattr(event, "exception", None)
         data = asdict(event)
         name = data.pop("name")

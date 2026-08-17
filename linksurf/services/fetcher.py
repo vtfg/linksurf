@@ -124,7 +124,7 @@ class HTTPXFetcher(Fetcher):
             exception_type = type(exception)
             exception_path = f"{exception_type.__module__}.{exception_type.__qualname__}"
 
-            EventBus().emit(RequestEvent(
+            await EventBus().emit(RequestEvent(
                 scheme=scheme, url=request.url, method=request.method,
                 duration_ms=duration_ms, error=error, exception_type=exception_path,
                 correlation_id=request.metadata.correlation_id, component=request.metadata.component,
@@ -136,7 +136,7 @@ class HTTPXFetcher(Fetcher):
 
         elapsed_ms = response.elapsed.total_seconds() * 1000
 
-        EventBus().emit(RequestEvent(
+        await EventBus().emit(RequestEvent(
             scheme=scheme, url=request.url, method=request.method,
             duration_ms=elapsed_ms, status_code=response.status_code,
             correlation_id=request.metadata.correlation_id, component=request.metadata.component,

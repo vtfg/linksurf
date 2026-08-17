@@ -10,6 +10,7 @@ from linksurf.services.cache import Cache
 class Storage(ConsumerComponent):
     NAME = "Storage"
     TOPIC = "url.store"
+    FINAL = True
 
     cache: Cache
 
