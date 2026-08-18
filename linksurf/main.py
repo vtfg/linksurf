@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 from linksurf.application import Linksurf, Seed
 from linksurf.broker.rabbitmq import RabbitMQBroker
+from linksurf.common.models import URL
 from linksurf.common.settings import Settings
 from linksurf.services import Services
 from linksurf.services.blob import S3BlobStorage
@@ -15,7 +16,7 @@ from linksurf.utils.env import get_env
 load_dotenv()
 
 if __name__ == "__main__":
-    seed = Seed.from_file("seed.txt")
+    seed = Seed.from_url(URL(get_env("SEED_TXT_URL")))
 
     services = Services(
         database=MongoDatabase(url=get_env("MONGODB_URL")),

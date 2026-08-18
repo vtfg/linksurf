@@ -4,7 +4,10 @@ import mimetypes
 import re
 import signal
 from asyncio import AbstractEventLoop
+from collections.abc import Iterable
 from typing import Self
+
+import httpx
 
 from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
@@ -34,26 +37,48 @@ class Seed:
         """
         Reads all valid URLs from a plain text file. Ignores lines starting with a # for testing convenience.
 
-        Only HTTP/HTTPS URLs are supported.
+        Only absolute HTTP/HTTPS URLs are extracted.
         """
 
         mime_type, _ = mimetypes.guess_type(path)
 
         if mime_type and not mime_type.startswith('text/'):
-            raise Exception(f"Seed file should be a plain text file.")
+            raise Exception("Seed file should be a plain text file.")
+
+        with open(path, "r") as file:
+            return cls.extract(file)
+
+    @classmethod
+    def from_url(cls, url: URL) -> Self:
+        """
+        Reads all valid URLs from a remote plain text file. Ignores lines starting with a # for testing convenience.
+
+        Only absolute HTTP/HTTPS URLs are extracted. Does not follow redirects.
+        """
+
+        if url.extension != "txt":
+            raise Exception("Seed file should be a plain text file.")
+
+        response = httpx.get(url.address, timeout=30.0)
+
+        if not response.is_success:
+            raise Exception(f"Seed file request failed with status code {response.status_code}.")
+
+        return cls.extract(response.text.splitlines())
+
+    @classmethod
+    def extract(cls, lines: Iterable[str]) -> Self:
+        URL_REGEX = "^https?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$"
 
         urls: list[str] = []
 
-        url_regex = "^https?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$"
+        for line in lines:
+            if line.startswith("#"):
+                continue
 
-        with open(path, "r") as file:
-            for line in file:
-                if line.startswith("#"):
-                    continue
+            matches = re.findall(URL_REGEX, line)
 
-                matches = re.findall(url_regex, line)
-
-                urls.extend(matches)
+            urls.extend(matches)
 
         unique_urls = set(urls)
 
