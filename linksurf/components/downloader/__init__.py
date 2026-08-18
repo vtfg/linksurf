@@ -57,7 +57,7 @@ class Downloader(LooperComponent):
         self.cache = services.cache
         self.fetcher = services.fetcher
 
-        await self.loop(self.back_queue.next, self.download, concurrency=20)
+        await self.loop(self.back_queue.next, self.download, concurrency=50)
 
     async def download(self, payload: Payload, lock: Lock) -> Error | None:
         if payload.crawl_id is None:

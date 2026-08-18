@@ -53,7 +53,7 @@ class Frontier(ConsumerComponent):
 
         self.database = services.database
 
-        await self.subscribe(self.TOPIC, self.process, concurrency=100)
+        await self.subscribe(self.TOPIC, self.process, concurrency=10)
 
     async def process(self, payload: Payload) -> Error | None:
         proceed, error = await self.rule(payload)

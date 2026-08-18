@@ -12,7 +12,7 @@ from linksurf.services.fetcher import ConnectError, ConnectTimeoutError, ReadErr
 
 DEFAULT_DOMAIN_DELAY = 1.0  # seconds
 LOCK_DURATION_SECONDS = ONE_DAY_IN_SECONDS
-MAX_ACTIVE_DOMAINS = 100  # 5x the Downloader's concurrency to prevent idle workers
+MAX_ACTIVE_DOMAINS = 250  # 5x the Downloader's concurrency to prevent idle workers
 MAX_URLS_PER_DOMAIN = 5
 
 LOCK_TRIGGERING_STATUS_CODES = {403, 429, 500, 502, 503}
