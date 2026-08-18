@@ -80,8 +80,6 @@ class Downloader(LooperComponent):
                 metadata=HTTPRequestMetadata(correlation_id=payload.correlation_id, component="Downloader")
             )
 
-            payload.request = request.to_summary()
-
             response: HTTPResponse | None = None
             exception: Exception | None = None
 
@@ -92,6 +90,8 @@ class Downloader(LooperComponent):
 
                 return Error("HTTP fetch failed.", retriable=True, exception=e)
             finally:
+                payload.request = request.to_summary()
+
                 await self.back_queue.report(payload, response, exception=exception)
 
         if response is None:
