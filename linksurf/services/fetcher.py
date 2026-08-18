@@ -18,6 +18,12 @@ from linksurf.events.bus import EventBus
 from linksurf.logger import Logger
 from linksurf.services.base import Service
 
+# returns the caller's IP as plain text
+PROXY_CHECK_URL = "https://ipv4.webshare.io/"
+PROXY_CHECK_TIMEOUT_SECONDS = 10.0
+
+PROXY_ACCEPTED_SCHEMES = ("socks5", "socks5h")
+
 
 class ConnectError(Exception):
     pass
@@ -39,6 +45,10 @@ class MaxRedirectsError(Exception):
     pass
 
 
+class ProxyError(Exception):
+    pass
+
+
 class Fetcher(Service):
     NAME = "fetcher"
 
@@ -56,12 +66,70 @@ class HTTPXFetcher(Fetcher):
         self.user_agent = settings.user_agent
         self.proxy = settings.proxy
 
+        # validated before the client is built, as httpx accepts schemes the crawler cannot use
+        if self.proxy is not None:
+            self._validate_proxy(self.proxy)
+
         client = AsyncClient(proxy=self.proxy)
         client.max_redirects = MAX_REDIRECT_DEPTH
 
-        Logger().debug("service.debug", service="Fetcher", message="Using proxy", proxy=self.proxy)
-
         self._client = client
+
+        if self.proxy is not None:
+            try:
+                ip = await self._check_proxy()
+            except Exception:
+                await self.on_stop()
+
+                raise
+
+            Logger().debug("service.debug", service="Fetcher", message="Proxy validated and injected.",
+                           proxy=self.proxy, remote_ip=ip)
+
+    @staticmethod
+    def _validate_proxy(proxy: str) -> None:
+        """
+        SOCKS5 is required rather than preferred as DNSMiddleware resolves domains via SOCKS5's remote DNS.
+        """
+
+        try:
+            parsed = urlsplit(proxy)
+            port = parsed.port  # parsing only, raises on a non-numeric port
+        except ValueError as e:
+            raise ProxyError(f"Proxy {proxy} is not a valid URL.")
+
+        if parsed.scheme not in PROXY_ACCEPTED_SCHEMES:
+            raise ProxyError(f"Proxy {proxy} must be one of {', '.join(PROXY_ACCEPTED_SCHEMES)}.")
+
+        if not parsed.hostname or not port:
+            raise ProxyError(f"Proxy {proxy} must define both host and port.")
+
+    async def _check_proxy(self) -> str:
+        """
+        Confirms traffic really leaves through the proxy, returning the egress IP.
+        """
+
+        try:
+            response = await self._client.get(PROXY_CHECK_URL, timeout=PROXY_CHECK_TIMEOUT_SECONDS)
+
+            response.raise_for_status()
+        except Exception as e:
+            raise ProxyError(f"Proxy {self.proxy} is unreachable.")
+
+        proxied_ip = response.text.strip()
+
+        try:
+            async with AsyncClient() as client:
+                response = await client.get(PROXY_CHECK_URL, timeout=PROXY_CHECK_TIMEOUT_SECONDS)
+
+                direct_ip = response.text.strip()
+        except Exception:
+            direct_ip = None
+
+        if direct_ip is not None and direct_ip == proxied_ip:
+            raise ProxyError(f"Proxy {self.proxy} is being bypassed: requests leave from {direct_ip}.")
+
+        return proxied_ip
 
     async def on_stop(self):
         if self._client is not None:
