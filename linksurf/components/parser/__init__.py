@@ -1,7 +1,7 @@
 import asyncio
 
 from linksurf.broker.base import Broker
-from linksurf.common.models import URL, Language, Link
+from linksurf.common.models import URL, Link
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
@@ -28,10 +28,10 @@ class Parser(ConsumerComponent):
         super().__init__(broker)
 
         self.middlewares = [
-            LanguageMiddleware(),
+            # LanguageMiddleware(),
         ]
         self.filters = [
-            LanguageFilter(allowed=[Language.PORTUGUESE]),
+            # LanguageFilter(allowed=[Language.PORTUGUESE]),
         ]
 
         self.extractors_registry = ExtractorsRegistry()
