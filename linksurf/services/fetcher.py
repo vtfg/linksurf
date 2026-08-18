@@ -76,12 +76,7 @@ class HTTPXFetcher(Fetcher):
         self._client = client
 
         if self.proxy is not None:
-            try:
-                ip = await self._check_proxy()
-            except Exception:
-                await self.on_stop()
-
-                raise
+            ip = await self._check_proxy()
 
             Logger().debug("service.debug", service="Fetcher", message="Proxy validated and injected.",
                            proxy=self.proxy, remote_ip=ip)
