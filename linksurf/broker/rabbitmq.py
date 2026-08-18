@@ -13,27 +13,29 @@ EXCHANGE = "linksurf.exchange"
 
 
 class RabbitMQBroker(Broker):
-    connection: aio_pika.abc.AbstractRobustConnection
-    channel: aio_pika.abc.AbstractRobustChannel
-
     def __init__(self, host: str = "localhost", port: int = 5672):
         super().__init__()
 
         self.host = host
         self.port = port
+        self.connection: aio_pika.abc.AbstractRobustConnection | None = None
+        self.channel: aio_pika.abc.AbstractChannel | None = None
 
         self._consumers: list[tuple[aio_pika.abc.AbstractQueue, str]] = []
         self._in_flight: set[asyncio.Task] = set()
 
     async def connect(self):
-        self.connection = await aio_pika.connect_robust(
+        connection = await aio_pika.connect_robust(
             host=self.host,
             port=self.port
         )
 
-        self.channel = await self.connection.channel()
-        await self.channel.declare_exchange(name=EXCHANGE, type="direct", durable=True)
-        await self.channel.set_qos(prefetch_count=1)
+        channel = await connection.channel()
+        await channel.declare_exchange(name=EXCHANGE, type="direct", durable=True)
+        await channel.set_qos(prefetch_count=1)
+
+        self.connection = connection
+        self.channel = channel
 
         self._stop_event = asyncio.Event()
 
