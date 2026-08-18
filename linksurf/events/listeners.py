@@ -28,7 +28,7 @@ class Listener:
 
 
 class LoggingListener(Listener):
-    EVENTS = ["component.start", "component.finish", "component.error"]
+    EVENTS = ["*"]
 
     async def handle(self, event: Event) -> None:
         exception = getattr(event, "exception", None)
