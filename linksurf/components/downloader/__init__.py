@@ -114,7 +114,7 @@ class Downloader(LooperComponent):
             return None
 
         content_type = payload.get_metadata("content_type")
-        key = f"{payload.url.hash}/{payload.crawl_id}"
+        key = f"{payload.url.domain}/{payload.url.hash}/{payload.crawl_id}"
 
         try:
             await self.blob_storage.upload(response.body, key, content_type=content_type)
