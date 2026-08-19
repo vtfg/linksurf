@@ -88,6 +88,7 @@ services:
     build: .
     container_name: linksurf
     restart: no
+    stop_grace_period: 2m30s
     profiles: [ production ]
     env_file:
       - .env
