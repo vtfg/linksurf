@@ -44,6 +44,7 @@ class URLModel:
     address: str
     hash: str
     domain: str
+    bucket: int
     priority: int
     correlation_id: str
     crawls: list[Crawl] = field(default_factory=list)
@@ -269,6 +270,7 @@ class MongoDatabase(Database):
                 address=document["address"],
                 hash=document["hash"],
                 domain=document["domain"],
+                bucket=document["bucket"],
                 priority=document["priority"],
                 correlation_id=document["correlation_id"],
                 crawls=[Crawl.from_document(crawl) for crawl in document["crawls"]],
