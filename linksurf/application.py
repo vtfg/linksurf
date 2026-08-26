@@ -1,10 +1,12 @@
 import asyncio
+import datetime
 import functools
 import mimetypes
 import re
 import signal
 from asyncio import AbstractEventLoop
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from typing import Self
 
 import httpx
@@ -86,7 +88,14 @@ class Seed:
 
 
 class Linksurf:
+    identifier: str
+    buckets: list[int]
+    started_at: datetime
+
     def __init__(self, settings: Settings, services: Services, broker: Broker):
+        self.identifier = get_env("IDENTIFIER")
+        self.buckets = [int(b) for b in get_env("BUCKETS").split(",")]
+
         self.settings = settings
         self.services = services
         self.broker = broker
@@ -115,7 +124,9 @@ class Linksurf:
         ]
 
     async def start(self, seed: Seed) -> None:
-        Logger().info("application.start")
+        Logger().info("application.start", identifier=self.identifier, buckets=self.buckets)
+
+        self.started_at = datetime.now(timezone.utc)
 
         Logger().info("listeners.register", listeners=[type(listener).__name__ for listener in self.listeners])
 
@@ -160,10 +171,7 @@ class Linksurf:
         for extension in self.extensions:
             await extension.on_start()
 
-        for component in self.components:
-            await component.on_start(self.settings, self.services)
-
-        await self.seed(seed.urls)
+        self.back_queue.set_buckets(self.buckets)
 
         try:
             await self.back_queue.on_start(self.services)
@@ -173,6 +181,11 @@ class Linksurf:
             await self.shutdown()
 
             return
+
+        for component in self.components:
+            await component.on_start(self.settings, self.services)
+
+        await self.seed(seed.urls)
 
         Logger().info("broker.loop")
 

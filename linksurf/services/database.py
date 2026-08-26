@@ -96,9 +96,9 @@ class Database(Service):
 
         raise NotImplementedError()
 
-    async def get_distinct_domains(self, excluded: list[str], limit: int) -> list[str]:
+    async def get_distinct_domains(self, excluded: list[str], buckets: list[int], limit: int) -> list[str]:
         """
-        Queries and returns a list of N (`limit`) distinct domains, excluding those in `excluded`.
+        Queries and returns a list of N (`limit`) distinct domains owned by one of the given `buckets`, excluding those in `excluded`.
 
         Domains are ordered by average pending URLs' priority.
         """
@@ -235,12 +235,12 @@ class MongoDatabase(Database):
             upsert=True,
         )
 
-    async def get_distinct_domains(self, excluded: list[str], limit: int) -> list[str]:
+    async def get_distinct_domains(self, excluded: list[str], buckets: list[int], limit: int) -> list[str]:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
         pipeline = [
-            {"$match": {"domain": {"$nin": excluded}, "crawls": {"$size": 0}}},
+            {"$match": {"domain": {"$nin": excluded}, "bucket": {"$in": buckets}, "crawls": {"$size": 0}}},
             {
                 "$group": {
                     "_id": "$domain",
