@@ -30,6 +30,7 @@ class DomainMetrics:
 @dataclass
 class DomainModel:
     domain: str
+    bucket: int
     status: DomainStatus = DomainStatus.ACTIVE
     lock_count: int = 0
     locked_until: datetime | None = None
@@ -87,7 +88,7 @@ class Database(Service):
 
         raise NotImplementedError()
 
-    async def save_domain(self, domain: str) -> None:
+    async def save_domain(self, domain: str, bucket: int) -> None:
         """
         Ensures a domain record exists, creating one with active status if it doesn't already exist yet.
         Doesn't overwrite existing lock state.
@@ -224,13 +225,13 @@ class MongoDatabase(Database):
             array_filters=[{"crawl.id": crawl_id}],
         )
 
-    async def save_domain(self, domain: str) -> None:
+    async def save_domain(self, domain: str, bucket: int) -> None:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
         await self._database["domains"].update_one(
             {"domain": domain},
-            {"$setOnInsert": asdict(DomainModel(domain=domain))},
+            {"$setOnInsert": asdict(DomainModel(domain=domain, bucket=bucket))},
             upsert=True,
         )
 
