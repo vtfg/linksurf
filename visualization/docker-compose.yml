@@ -11,8 +11,7 @@ services:
       POSTGRES_DB: visualization
     volumes:
       - postgres:/var/lib/postgresql/data
-    ports:
-      - '5432:5432'
+    # reachable only over the private network
     networks:
       - network
     healthcheck:
@@ -34,7 +33,7 @@ services:
       # host override
       DATABASE_URL: postgresql://root:root@postgres:5432/visualization
     ports:
-      - '8000:8000'
+      - '4567:8000'
     depends_on:
       postgres:
         condition: service_healthy
