@@ -1,6 +1,6 @@
 name: linksurf
 
-linksurf: &linksurf
+x-linksurf: &linksurf
   build: .
   # shared tag so the image is only built once
   image: linksurf
