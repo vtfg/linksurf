@@ -30,6 +30,7 @@ class DomainMetrics:
 @dataclass
 class DomainModel:
     domain: str
+    bucket: int
     status: DomainStatus = DomainStatus.ACTIVE
     lock_count: int = 0
     locked_until: datetime | None = None
@@ -44,6 +45,7 @@ class URLModel:
     address: str
     hash: str
     domain: str
+    bucket: int
     priority: int
     correlation_id: str
     crawls: list[Crawl] = field(default_factory=list)
@@ -86,7 +88,7 @@ class Database(Service):
 
         raise NotImplementedError()
 
-    async def save_domain(self, domain: str) -> None:
+    async def save_domain(self, domain: str, bucket: int) -> None:
         """
         Ensures a domain record exists, creating one with active status if it doesn't already exist yet.
         Doesn't overwrite existing lock state.
@@ -94,9 +96,9 @@ class Database(Service):
 
         raise NotImplementedError()
 
-    async def get_distinct_domains(self, excluded: list[str], limit: int) -> list[str]:
+    async def get_distinct_domains(self, excluded: list[str], buckets: list[int], limit: int) -> list[str]:
         """
-        Queries and returns a list of N (`limit`) distinct domains, excluding those in `excluded`.
+        Queries and returns a list of N (`limit`) distinct domains owned by one of the given `buckets`, excluding those in `excluded`.
 
         Domains are ordered by average pending URLs' priority.
         """
@@ -223,22 +225,22 @@ class MongoDatabase(Database):
             array_filters=[{"crawl.id": crawl_id}],
         )
 
-    async def save_domain(self, domain: str) -> None:
+    async def save_domain(self, domain: str, bucket: int) -> None:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
         await self._database["domains"].update_one(
             {"domain": domain},
-            {"$setOnInsert": asdict(DomainModel(domain=domain))},
+            {"$setOnInsert": asdict(DomainModel(domain=domain, bucket=bucket))},
             upsert=True,
         )
 
-    async def get_distinct_domains(self, excluded: list[str], limit: int) -> list[str]:
+    async def get_distinct_domains(self, excluded: list[str], buckets: list[int], limit: int) -> list[str]:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
         pipeline = [
-            {"$match": {"domain": {"$nin": excluded}, "crawls": {"$size": 0}}},
+            {"$match": {"domain": {"$nin": excluded}, "bucket": {"$in": buckets}, "crawls": {"$size": 0}}},
             {
                 "$group": {
                     "_id": "$domain",
@@ -269,6 +271,7 @@ class MongoDatabase(Database):
                 address=document["address"],
                 hash=document["hash"],
                 domain=document["domain"],
+                bucket=document["bucket"],
                 priority=document["priority"],
                 correlation_id=document["correlation_id"],
                 crawls=[Crawl.from_document(crawl) for crawl in document["crawls"]],

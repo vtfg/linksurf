@@ -17,6 +17,7 @@ from linksurf.components.frontier.rules import (
 )
 from linksurf.events import CrawlPendingEvent
 from linksurf.events.bus import EventBus
+from linksurf.hashing import bucketize
 from linksurf.services import Services, Database
 from linksurf.services.database import URLModel
 
@@ -87,10 +88,13 @@ class Frontier(ConsumerComponent):
 
         payload.priority = priority
 
+        bucket = bucketize(payload.url.domain)
+
         url = URLModel(
             address=payload.url.address,
             hash=payload.url.hash,
             domain=payload.url.domain,
+            bucket=bucket,
             priority=payload.priority or 0,
             correlation_id=payload.correlation_id,
             discovered_at=payload.discovered_at,
@@ -98,7 +102,7 @@ class Frontier(ConsumerComponent):
 
         try:
             await self.database.register_url(url)
-            await self.database.save_domain(payload.url.domain)
+            await self.database.save_domain(payload.url.domain, bucket)
         except Exception as e:
             return Error("Database write failed.", retriable=True, exception=e)
 

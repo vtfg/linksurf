@@ -123,7 +123,7 @@ class VisualizationExtension(Extension):
             try:
                 self._queue.put_nowait(asdict(event))
             except asyncio.QueueFull:
-                Logger().warning("visualization.dropped", event=event.name)
+                Logger().warning("visualization.dropped", url=event.url)
 
         async def _send_queued(self) -> None:
             while True:

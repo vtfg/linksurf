@@ -24,6 +24,8 @@ class BackQueue:
     cache: Cache
 
     def __init__(self):
+        self.buckets: list[int] = []
+
         # general lock for insert/remove operations in internal dicts
         self.lock = Lock()
 
@@ -40,34 +42,19 @@ class BackQueue:
         self._draining = False
 
     async def on_start(self, services: Services):
-        """
-        Gathers domains, URLs and release times from disk (Database).
-        """
+        if len(self.buckets) == 0:
+            raise Exception("Buckets should be set before starting the back queue.")
 
         self.database = services.database
         self.cache = services.cache
 
-        Logger().info("back_queue.start", message=f"Querying and enqueueing {MAX_ACTIVE_DOMAINS} domains.")
-
-        while len(self.queues) < MAX_ACTIVE_DOMAINS:
-            if not await self._enqueue_new_domain():
-                break
-
-        enqueued_domains = len(self.queues)
-
-        if enqueued_domains == 0:
-            raise Exception("No domains available. Consider seeding new URLs.")
-
-        Logger().info("back_queue.start", message=f"Enqueued {enqueued_domains} domains.")
+        Logger().info("back_queue.start", message=f"Enqueueing up to {MAX_ACTIVE_DOMAINS} domains on demand.")
 
     async def on_stop(self):
-        """
-        Writes in-memory data (pending URLs and domains' release time) to disk (Database).
-        """
-
-        # TODO: ^
-
         Logger().info("back_queue.stop")
+
+    def set_buckets(self, buckets: list[int]):
+        self.buckets = buckets
 
     async def put(self, payload: Payload) -> None:
         """
@@ -110,6 +97,11 @@ class BackQueue:
         """
 
         while True:
+            # outside the lock below because _enqueue_new_domain already takes
+            while len(self.queues) < MAX_ACTIVE_DOMAINS:
+                if not await self._enqueue_new_domain():
+                    break
+
             # scanning and consuming must be atomic to prevent TOCTOU window errors
             # ^ mostly KeyError from trying to read from release_time a few milliseconds after the domain has been cleaned up
             async with self.lock:
@@ -224,7 +216,8 @@ class BackQueue:
 
                 excluded_domains = []
 
-            new_domains = await self.database.get_distinct_domains(current_domains + excluded_domains, limit=1)
+            new_domains = await self.database.get_distinct_domains(current_domains + excluded_domains, self.buckets,
+                                                                   limit=1)
 
             # Logger().debug("back_queue.debug", new=new_domains, excluded=excluded_domains, current=current_domains)
 
