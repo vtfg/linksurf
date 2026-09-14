@@ -9,10 +9,10 @@ from linksurf.services.fetcher import Fetcher
 
 class Services:
     def __init__(self, database: Database, blob_storage: BlobStorage, cache: Cache, fetcher: Fetcher):
-        self.database = database
-        self.blob_storage = blob_storage
-        self.cache = cache
-        self.fetcher = fetcher
+        self.database: Database = database
+        self.blob_storage: BlobStorage = blob_storage
+        self.cache: Cache = cache
+        self.fetcher: Fetcher = fetcher
 
         # services that come from extensions
         self._extra: list[Service] = []
