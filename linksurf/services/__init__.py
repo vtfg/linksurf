@@ -5,20 +5,22 @@ from linksurf.services.blob import BlobStorage
 from linksurf.services.cache import Cache
 from linksurf.services.database import Database
 from linksurf.services.fetcher import Fetcher
+from linksurf.services.lock import Lock
 
 
 class Services:
-    def __init__(self, database: Database, blob_storage: BlobStorage, cache: Cache, fetcher: Fetcher):
+    def __init__(self, database: Database, blob_storage: BlobStorage, cache: Cache, fetcher: Fetcher, lock: Lock):
         self.database: Database = database
         self.blob_storage: BlobStorage = blob_storage
         self.cache: Cache = cache
         self.fetcher: Fetcher = fetcher
+        self.lock: Lock = lock
 
         # services that come from extensions
         self._extra: list[Service] = []
 
     async def connect(self, settings: Settings) -> None:
-        services = [self.database, self.blob_storage, self.cache, self.fetcher] + self._extra
+        services = [self.database, self.blob_storage, self.cache, self.fetcher, self.lock] + self._extra
 
         for service in services:
             service_name = type(service).__name__
@@ -33,7 +35,7 @@ class Services:
             Logger().info("service.start", service=service_name)
 
     async def disconnect(self) -> None:
-        services = [self.database, self.blob_storage, self.cache, self.fetcher] + self._extra
+        services = [self.database, self.blob_storage, self.cache, self.fetcher, self.lock] + self._extra
 
         for service in services:
             service_name = type(service).__name__

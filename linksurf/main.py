@@ -11,6 +11,7 @@ from linksurf.services.blob import S3BlobStorage
 from linksurf.services.cache import RedisCache
 from linksurf.services.database import MongoDatabase
 from linksurf.services.fetcher import HTTPXFetcher
+from linksurf.services.lock import RedisLock
 from linksurf.utils.env import get_env
 
 load_dotenv()
@@ -31,6 +32,10 @@ if __name__ == "__main__":
             port=get_env("REDIS_PORT", cast=int),
         ),
         fetcher=HTTPXFetcher(),
+        lock=RedisLock(
+            host=get_env("REDIS_HOST"),
+            port=get_env("REDIS_PORT", cast=int),
+        ),
     )
 
     broker = RabbitMQBroker(host=get_env("RABBITMQ_HOST"), port=get_env("RABBITMQ_PORT", cast=int))
