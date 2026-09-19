@@ -5,12 +5,14 @@ import re
 import signal
 from asyncio import AbstractEventLoop
 from collections.abc import Iterable
+from dataclasses import asdict
 from typing import Self
 
 import httpx
 
 from linksurf.backqueue import BackQueue
 from linksurf.broker.base import Broker
+from linksurf.common.constants import SHUTDOWN_DRAIN_TIMEOUT_SECONDS, HEARTBEAT_INTERVAL_SECONDS
 from linksurf.common.models import URL
 from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
@@ -25,6 +27,7 @@ from linksurf.events.listeners import LoggingListener
 from linksurf.extensions import Extension
 from linksurf.logger import Logger
 from linksurf.services import Services
+from linksurf.worker import Worker
 
 
 class Seed:
@@ -113,8 +116,21 @@ class Linksurf:
             # VisualizationExtension(self, self.settings, self.services),
         ]
 
+        self.worker = Worker(
+            self.services,
+            self.back_queue,
+            metadata={
+                "settings": asdict(settings),
+                "extensions": [type(extension).__name__ for extension in self.extensions],
+                "components": [component.NAME for component in self.components],
+            },
+        )
+
+        self._heartbeat_task: asyncio.Task | None = None
+        self.stopping = False
+
     async def start(self, seed: Seed) -> None:
-        Logger().info("application.start")
+        Logger().info("application.start", identifier=self.worker.identifier)
 
         Logger().info("listeners.register", listeners=[type(listener).__name__ for listener in self.listeners])
 
@@ -125,9 +141,9 @@ class Linksurf:
         def on_signal(sig, loop: AbstractEventLoop):
             Logger().info("application.shutdown", message="Press Ctrl+C to exit immediately.")
 
-            self.broker.stop()
+            self.worker.mark_draining()
 
-            self.back_queue.drain()
+            self.broker.stop()
 
             loop.remove_signal_handler(sig)
 
@@ -159,10 +175,14 @@ class Linksurf:
         for extension in self.extensions:
             await extension.on_start()
 
-        for component in self.components:
-            await component.on_start(self.settings, self.services)
+        try:
+            await self.worker.on_start()
+        except:
+            Logger().exception("worker.error", error="Worker startup failed.")
 
-        await self.seed(seed.urls)
+            await self.shutdown()
+
+            return
 
         try:
             await self.back_queue.on_start(self.services)
@@ -172,6 +192,13 @@ class Linksurf:
             await self.shutdown()
 
             return
+
+        for component in self.components:
+            await component.on_start(self.settings, self.services)
+
+        self._heartbeat_task = asyncio.create_task(self.heartbeat())
+
+        await self.seed(seed.urls)
 
         Logger().info("broker.loop")
 
@@ -183,6 +210,33 @@ class Linksurf:
             await self.shutdown()
 
     async def shutdown(self) -> None:
+        if self.stopping:
+            return
+
+        self.stopping = True
+
+        release_worker = self.services.ready and not self.back_queue.ready
+
+        if self.services.ready and self.back_queue.ready:
+            # The signal handler normally starts draining. This fallback also
+            # prevents new local admission after an unexpected broker exit.
+            self.back_queue.drain()
+
+            drained = await self.back_queue.wait_for_drain(SHUTDOWN_DRAIN_TIMEOUT_SECONDS)
+
+            if drained:
+                release_worker = True
+            else:
+                Logger().warning(
+                    "application.shutdown_timeout",
+                    message="Local queue did not drain; bucket leases will expire naturally.",
+                )
+
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            await asyncio.gather(self._heartbeat_task, return_exceptions=True)
+            self._heartbeat_task = None
+
         for extension in self.extensions:
             try:
                 await extension.on_stop()
@@ -206,9 +260,14 @@ class Linksurf:
         else:
             Logger().info("broker.disconnect")
 
-        await self.back_queue.on_stop()
+        if self.back_queue.ready:
+            await self.back_queue.on_stop()
 
-        await self.services.disconnect()
+        if release_worker:
+            await self.worker.on_stop()
+
+        if self.services.ready:
+            await self.services.disconnect()
 
         Logger().info("application.stop")
 
@@ -225,3 +284,25 @@ class Linksurf:
                                error=error.message)
 
                 continue
+
+    async def heartbeat(self) -> None:
+        """
+        Periodically run readiness checks and refresh worker membership.
+        """
+
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
+                try:
+                    # TODO: Validate services and broker readiness, shutdown otherwise
+
+                    await self.worker.refresh()
+
+                    Logger().info("application.heartbeat", status=self.worker.status)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    Logger().exception("application.heartbeat_error")
+        except asyncio.CancelledError:
+            return

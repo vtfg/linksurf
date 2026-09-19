@@ -2,13 +2,16 @@ import asyncio
 import time
 from asyncio import sleep, Lock, Queue
 from datetime import datetime, timezone, timedelta
+from typing import cast
 
+from linksurf.common.models import BucketModel, BucketState
 from linksurf.common.models import HTTPResponse, URL
 from linksurf.common.payload import Payload
 from linksurf.logger import Logger
 from linksurf.services import Services, Cache, Database
 from linksurf.services.cache import ONE_DAY_IN_SECONDS
 from linksurf.services.fetcher import ConnectError, ConnectTimeoutError, ReadError, ReadTimeoutError
+from linksurf.utils.hashing import bucketize
 
 DEFAULT_DOMAIN_DELAY = 1.0  # seconds
 LOCK_DURATION_SECONDS = ONE_DAY_IN_SECONDS
@@ -24,6 +27,11 @@ class BackQueue:
     cache: Cache
 
     def __init__(self):
+        self.buckets: list[int] = []
+        self._draining_buckets: set[int] = set()
+        self._in_flight_buckets: dict[int, int] = {}
+        self._assignment_revisions: dict[int, int] = {}
+
         # general lock for insert/remove operations in internal dicts
         self.lock = Lock()
 
@@ -37,37 +45,99 @@ class BackQueue:
         # domain: Lock
         self.locks: dict[str, Lock] = {}
 
+        self.ready = False
         self._draining = False
 
     async def on_start(self, services: Services):
-        """
-        Gathers domains, URLs and release times from disk (Database).
-        """
+        self.ready = False
 
         self.database = services.database
         self.cache = services.cache
 
-        Logger().info("back_queue.start", message=f"Querying and enqueueing {MAX_ACTIVE_DOMAINS} domains.")
+        Logger().info("back_queue.start", message=f"Enqueueing up to {MAX_ACTIVE_DOMAINS} domains on demand.")
 
-        while len(self.queues) < MAX_ACTIVE_DOMAINS:
-            if not await self._enqueue_new_domain():
-                break
-
-        enqueued_domains = len(self.queues)
-
-        if enqueued_domains == 0:
-            raise Exception("No domains available. Consider seeding new URLs.")
-
-        Logger().info("back_queue.start", message=f"Enqueued {enqueued_domains} domains.")
+        self.ready = True
 
     async def on_stop(self):
-        """
-        Writes in-memory data (pending URLs and domains' release time) to disk (Database).
-        """
-
-        # TODO: ^
-
         Logger().info("back_queue.stop")
+
+        self.ready = False
+
+    def set_buckets(self, buckets: list[int] | list[BucketModel]) -> None:
+        """
+        Set bucket admission from IDs during startup or persisted assignments
+        during worker synchronization.
+        """
+
+        if not buckets:
+            self.buckets = []
+            self._draining_buckets.clear()
+            self._assignment_revisions.clear()
+
+            return
+
+        if isinstance(buckets[0], int):
+            bucket_ids = cast(list[int], buckets)
+            self.buckets = sorted(set(bucket_ids))
+            self._draining_buckets.clear()
+            self._assignment_revisions.clear()
+
+            return
+
+        assignments = cast(list[BucketModel], buckets)
+
+        self.buckets = sorted(
+            assignment.id
+            for assignment in assignments
+            if assignment.state in {BucketState.IDLE, BucketState.ACTIVE}
+        )
+        self._draining_buckets = {
+            assignment.id for assignment in assignments if assignment.state == BucketState.DRAINING
+        }
+        self._assignment_revisions = {assignment.id: assignment.revision for assignment in assignments}
+
+        Logger().info(
+            "back_queue.assignment",
+            buckets=self.buckets,
+            draining_buckets=sorted(self._draining_buckets),
+        )
+
+    async def bucket_states(self) -> dict[int, BucketState]:
+        """
+        Return local activity for buckets that this worker may still fetch.
+        """
+
+        async with self.lock:
+            states: dict[int, BucketState] = {}
+
+            for bucket in self.buckets:
+                states[bucket] = BucketState.ACTIVE if self._bucket_has_work(bucket) else BucketState.IDLE
+
+            return states
+
+    async def drained_buckets(self) -> list[int]:
+        """
+        Return draining buckets whose local queue and in-flight work are empty.
+        """
+
+        async with self.lock:
+            return sorted(bucket for bucket in self._draining_buckets if not self._bucket_has_work(bucket))
+
+    async def wait_for_drain(self, timeout_seconds: float) -> bool:
+        """
+        Wait for all locally admitted work to finish after global admission has stopped.
+        """
+
+        deadline = time.monotonic() + timeout_seconds
+
+        while time.monotonic() < deadline:
+            async with self.lock:
+                if not self._has_local_work():
+                    return True
+
+            await sleep(0.25)
+
+        return False
 
     async def put(self, payload: Payload) -> None:
         """
@@ -110,6 +180,11 @@ class BackQueue:
         """
 
         while True:
+            # outside the lock below because _enqueue_new_domain already takes
+            while len(self.queues) < MAX_ACTIVE_DOMAINS:
+                if not await self._enqueue_new_domain():
+                    break
+
             # scanning and consuming must be atomic to prevent TOCTOU window errors
             # ^ mostly KeyError from trying to read from release_time a few milliseconds after the domain has been cleaned up
             async with self.lock:
@@ -125,6 +200,8 @@ class BackQueue:
                         self.release_times[domain] = now + DEFAULT_DOMAIN_DELAY
 
                         payload = await queue.get()
+                        bucket = bucketize(domain)
+                        self._in_flight_buckets[bucket] = self._in_flight_buckets.get(bucket, 0) + 1
 
                         return payload, lock
 
@@ -143,38 +220,56 @@ class BackQueue:
 
         domain = payload.url.domain
 
-        delay_seconds = DEFAULT_DOMAIN_DELAY
+        try:
+            delay_seconds = DEFAULT_DOMAIN_DELAY
 
-        should_lock = (
-                (response is not None and response.status_code in LOCK_TRIGGERING_STATUS_CODES)
-                or isinstance(exception, LOCK_TRIGGERING_EXCEPTIONS)
-        )
+            should_lock = (
+                    (response is not None and response.status_code in LOCK_TRIGGERING_STATUS_CODES)
+                    or isinstance(exception, LOCK_TRIGGERING_EXCEPTIONS)
+            )
 
-        if should_lock:
-            until = datetime.now(timezone.utc) + timedelta(seconds=LOCK_DURATION_SECONDS)
-            reason = f"Received status {response.status_code}" if response is not None else f"Caught exception {type(exception).__name__}"
+            if should_lock:
+                until = datetime.now(timezone.utc) + timedelta(seconds=LOCK_DURATION_SECONDS)
+                reason = f"Received status {response.status_code}" if response is not None else f"Caught exception {type(exception).__name__}"
 
-            try:
-                status = await self.database.lock_domain(domain, until, reason)
+                try:
+                    status = await self.database.lock_domain(domain, until, reason)
 
-                Logger().warning("back_queue.locked", domain=domain, status=status.value, reason=reason)
-            except Exception as e:
-                Logger().error("back_queue.error", message="Failed to lock domain.", exception=str(e))
-        elif response is not None:
-            # since robots.txt's Crawl-Delay is no longer used this formula helps to apply a slightly increased delay
-            delay_seconds = response.elapsed_ms / 1000 + DEFAULT_DOMAIN_DELAY
+                    Logger().warning("back_queue.locked", domain=domain, status=status.value, reason=reason)
+                except Exception as e:
+                    Logger().error("back_queue.error", message="Failed to lock domain.", exception=str(e))
+            elif response is not None:
+                # since robots.txt's Crawl-Delay is no longer used this formula helps to apply a slightly increased delay
+                delay_seconds = response.elapsed_ms / 1000 + DEFAULT_DOMAIN_DELAY
 
-            try:
-                await self.database.unlock_domain(domain)
-            except Exception as e:
-                Logger().error("back_queue.error", message="Failed to reset domain lock.", exception=str(e))
+                try:
+                    await self.database.unlock_domain(domain)
+                except Exception as e:
+                    Logger().error("back_queue.error", message="Failed to reset domain lock.", exception=str(e))
 
-        self.release_times[domain] = time.time() + delay_seconds
+            self.release_times[domain] = time.time() + delay_seconds
 
-        Logger().debug("back_queue.debug", message=f"Adjusted {domain} delay to {delay_seconds}s")
+            Logger().debug("back_queue.debug", message=f"Adjusted {domain} delay to {delay_seconds}s")
 
-        if should_lock or self.queues[domain].empty():
-            asyncio.create_task(self._cleanup_domain(domain))
+            if should_lock or self.queues[domain].empty():
+                asyncio.create_task(self._cleanup_domain(domain))
+        finally:
+            await self.complete(payload)
+
+    async def complete(self, payload: Payload) -> None:
+        """
+        Mark a payload selected by ``next`` as no longer in flight.
+        """
+
+        bucket = bucketize(payload.url.domain)
+
+        async with self.lock:
+            count = self._in_flight_buckets.get(bucket, 0)
+
+            if count <= 1:
+                self._in_flight_buckets.pop(bucket, None)
+            else:
+                self._in_flight_buckets[bucket] = count - 1
 
     def drain(self) -> None:
         """
@@ -224,7 +319,14 @@ class BackQueue:
 
                 excluded_domains = []
 
-            new_domains = await self.database.get_distinct_domains(current_domains + excluded_domains, limit=1)
+            fetchable_buckets = [bucket for bucket in self.buckets if bucket not in self._draining_buckets]
+
+            if not fetchable_buckets:
+                return False
+
+            new_domains = await self.database.get_distinct_domains(current_domains + excluded_domains,
+                                                                   fetchable_buckets,
+                                                                   limit=1)
 
             # Logger().debug("back_queue.debug", new=new_domains, excluded=excluded_domains, current=current_domains)
 
@@ -252,3 +354,12 @@ class BackQueue:
             Logger().debug("back_queue.debug", message=f"Enqueueing {domain} with {len(urls)} URLs.")
 
             return True
+
+    def _bucket_has_work(self, bucket: int) -> bool:
+        if self._in_flight_buckets.get(bucket, 0) > 0:
+            return True
+
+        return any(bucketize(domain) == bucket and queue.qsize() > 0 for domain, queue in self.queues.items())
+
+    def _has_local_work(self) -> bool:
+        return bool(self._in_flight_buckets) or any(queue.qsize() > 0 for queue in self.queues.values())

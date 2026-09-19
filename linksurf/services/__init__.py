@@ -5,20 +5,26 @@ from linksurf.services.blob import BlobStorage
 from linksurf.services.cache import Cache
 from linksurf.services.database import Database
 from linksurf.services.fetcher import Fetcher
+from linksurf.services.lock import Lock
 
 
 class Services:
-    def __init__(self, database: Database, blob_storage: BlobStorage, cache: Cache, fetcher: Fetcher):
-        self.database = database
-        self.blob_storage = blob_storage
-        self.cache = cache
-        self.fetcher = fetcher
+    def __init__(self, database: Database, blob_storage: BlobStorage, cache: Cache, fetcher: Fetcher, lock: Lock):
+        self.database: Database = database
+        self.blob_storage: BlobStorage = blob_storage
+        self.cache: Cache = cache
+        self.fetcher: Fetcher = fetcher
+        self.lock: Lock = lock
 
         # services that come from extensions
         self._extra: list[Service] = []
 
+        self.ready = False
+
     async def connect(self, settings: Settings) -> None:
-        services = [self.database, self.blob_storage, self.cache, self.fetcher] + self._extra
+        self.ready = False
+
+        services = [self.database, self.blob_storage, self.cache, self.fetcher, self.lock] + self._extra
 
         for service in services:
             service_name = type(service).__name__
@@ -32,20 +38,25 @@ class Services:
 
             Logger().info("service.start", service=service_name)
 
+        self.ready = True
+
     async def disconnect(self) -> None:
-        services = [self.database, self.blob_storage, self.cache, self.fetcher] + self._extra
+        services = [self.database, self.blob_storage, self.cache, self.fetcher, self.lock] + self._extra
 
-        for service in services:
-            service_name = type(service).__name__
+        try:
+            for service in services:
+                service_name = type(service).__name__
 
-            try:
-                await service.on_stop()
-            except Exception:
-                Logger().exception("service.error", service=service_name, error="Service shutdown failed.")
+                try:
+                    await service.on_stop()
+                except Exception:
+                    Logger().exception("service.error", service=service_name, error="Service shutdown failed.")
 
-                raise
+                    raise
 
-            Logger().info("service.stop", service=service_name)
+                Logger().info("service.stop", service=service_name)
+        finally:
+            self.ready = False
 
     def register(self, service: Service):
         self._extra.append(service)

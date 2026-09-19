@@ -5,11 +5,17 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
-from pymongo import AsyncMongoClient
+from pymongo import AsyncMongoClient, UpdateOne
 from pymongo.asynchronous.database import AsyncDatabase
 
 from linksurf.common.constants import MAX_DOMAIN_CONSECUTIVE_LOCKS, MAX_CRAWL_HISTORY_PER_URL
-from linksurf.common.models import Crawl, ComponentExecution
+from linksurf.common.models import (
+    BucketModel,
+    BucketState,
+    ComponentExecution,
+    Crawl,
+    WorkerModel,
+)
 from linksurf.common.settings import Settings
 from linksurf.services.base import Service
 
@@ -30,6 +36,7 @@ class DomainMetrics:
 @dataclass
 class DomainModel:
     domain: str
+    bucket: int
     status: DomainStatus = DomainStatus.ACTIVE
     lock_count: int = 0
     locked_until: datetime | None = None
@@ -44,6 +51,7 @@ class URLModel:
     address: str
     hash: str
     domain: str
+    bucket: int
     priority: int
     correlation_id: str
     crawls: list[Crawl] = field(default_factory=list)
@@ -86,7 +94,7 @@ class Database(Service):
 
         raise NotImplementedError()
 
-    async def save_domain(self, domain: str) -> None:
+    async def save_domain(self, domain: str, bucket: int) -> None:
         """
         Ensures a domain record exists, creating one with active status if it doesn't already exist yet.
         Doesn't overwrite existing lock state.
@@ -94,9 +102,9 @@ class Database(Service):
 
         raise NotImplementedError()
 
-    async def get_distinct_domains(self, excluded: list[str], limit: int) -> list[str]:
+    async def get_distinct_domains(self, excluded: list[str], buckets: list[int], limit: int) -> list[str]:
         """
-        Queries and returns a list of N (`limit`) distinct domains, excluding those in `excluded`.
+        Queries and returns a list of N (`limit`) distinct domains owned by one of the given `buckets`, excluding those in `excluded`.
 
         Domains are ordered by average pending URLs' priority.
         """
@@ -143,6 +151,38 @@ class Database(Service):
         Blocks the domain if language isn't allowed and its count reaches the defined threshold.
         """
 
+        raise NotImplementedError()
+
+    async def ensure_bucket_records(self, count: int) -> None:
+        raise NotImplementedError()
+
+    async def upsert_worker(self, worker: WorkerModel) -> None:
+        """Refresh a worker lease or reject a live lease held by another process."""
+
+        raise NotImplementedError()
+
+    async def get_live_workers(self, now: datetime) -> list[WorkerModel]:
+        raise NotImplementedError()
+
+    async def get_buckets(self) -> list[BucketModel]:
+        raise NotImplementedError()
+
+    async def get_owned_buckets(self, worker_id: str) -> list[BucketModel]:
+        raise NotImplementedError()
+
+    async def set_bucket_assignment(self, bucket_id: int, owner_id: str | None,
+                                    state: BucketState, successor_id: str | None = None) -> None:
+        raise NotImplementedError()
+
+    async def mark_bucket_draining(self, bucket_id: int, owner_id: str,
+                                   successor_id: str) -> bool:
+        raise NotImplementedError()
+
+    async def promote_drained_bucket(self, bucket_id: int, owner_id: str,
+                                     successor_id: str) -> bool:
+        raise NotImplementedError()
+
+    async def sync_owned_bucket_states(self, worker_id: str, states: dict[int, BucketState]) -> None:
         raise NotImplementedError()
 
 
@@ -223,22 +263,22 @@ class MongoDatabase(Database):
             array_filters=[{"crawl.id": crawl_id}],
         )
 
-    async def save_domain(self, domain: str) -> None:
+    async def save_domain(self, domain: str, bucket: int) -> None:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
         await self._database["domains"].update_one(
             {"domain": domain},
-            {"$setOnInsert": asdict(DomainModel(domain=domain))},
+            {"$setOnInsert": asdict(DomainModel(domain=domain, bucket=bucket))},
             upsert=True,
         )
 
-    async def get_distinct_domains(self, excluded: list[str], limit: int) -> list[str]:
+    async def get_distinct_domains(self, excluded: list[str], buckets: list[int], limit: int) -> list[str]:
         if self._client is None:
             raise RuntimeError("Service not started.")
 
         pipeline = [
-            {"$match": {"domain": {"$nin": excluded}, "crawls": {"$size": 0}}},
+            {"$match": {"domain": {"$nin": excluded}, "bucket": {"$in": buckets}, "crawls": {"$size": 0}}},
             {
                 "$group": {
                     "_id": "$domain",
@@ -269,9 +309,10 @@ class MongoDatabase(Database):
                 address=document["address"],
                 hash=document["hash"],
                 domain=document["domain"],
+                bucket=document["bucket"],
                 priority=document["priority"],
                 correlation_id=document["correlation_id"],
-                crawls=[Crawl.from_document(crawl) for crawl in document["crawls"]],
+                crawls=[Crawl.from_dict(crawl) for crawl in document["crawls"]],
                 discovered_at=document["discovered_at"],
             )
 
@@ -366,3 +407,154 @@ class MongoDatabase(Database):
         )
 
         return None
+
+    async def ensure_bucket_records(self, count: int) -> None:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        buckets = self._database["buckets"]
+
+        now = datetime.now(timezone.utc)
+        operations = [
+            UpdateOne(
+                {"_id": bucket_id},
+                {"$setOnInsert": {
+                    "state": BucketState.UNASSIGNED.value,
+                    "owner_id": None,
+                    "successor_id": None,
+                    "revision": 0,
+                    "updated_at": now,
+                }},
+                upsert=True,
+            )
+            for bucket_id in range(1, count + 1)
+        ]
+
+        await buckets.bulk_write(operations, ordered=False)
+
+    async def upsert_worker(self, worker: WorkerModel) -> None:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        await self._database["workers"].update_one(
+            {"_id": worker.id},
+            {
+                "$set": {
+                    "status": worker.status.value,
+                    "heartbeat_at": worker.heartbeat_at,
+                    "expires_at": worker.expires_at,
+                    "metadata": worker.metadata,
+                },
+                "$setOnInsert": {"started_at": worker.started_at},
+            },
+            upsert=True,
+        )
+
+    async def get_live_workers(self, now: datetime) -> list[WorkerModel]:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        cursor = self._database["workers"].find({"expires_at": {"$gt": now}}).sort("_id", 1)
+
+        return [WorkerModel.from_dict(document) async for document in cursor]
+
+    async def get_buckets(self) -> list[BucketModel]:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        cursor = self._database["buckets"].find().sort("_id", 1)
+
+        return [BucketModel.from_dict(document) async for document in cursor]
+
+    async def get_owned_buckets(self, worker_id: str) -> list[BucketModel]:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        cursor = self._database["buckets"].find({"owner_id": worker_id}).sort("_id", 1)
+
+        return [BucketModel.from_dict(document) async for document in cursor]
+
+    async def set_bucket_assignment(self, bucket_id: int, owner_id: str | None, state: BucketState,
+                                    successor_id: str | None = None) -> None:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        await self._database["buckets"].update_one(
+            {"_id": bucket_id},
+            {
+                "$set": {
+                    "owner_id": owner_id,
+                    "successor_id": successor_id,
+                    "state": state.value,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+                "$inc": {"revision": 1},
+            },
+        )
+
+    async def mark_bucket_draining(self, bucket_id: int, owner_id: str, successor_id: str) -> bool:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        result = await self._database["buckets"].update_one(
+            {
+                "_id": bucket_id,
+                "owner_id": owner_id,
+                "state": {"$in": [BucketState.ACTIVE.value, BucketState.IDLE.value]},
+            },
+            {
+                "$set": {
+                    "state": BucketState.DRAINING.value,
+                    "successor_id": successor_id,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+                "$inc": {"revision": 1},
+            },
+        )
+
+        return result.modified_count == 1
+
+    async def promote_drained_bucket(self, bucket_id: int, owner_id: str, successor_id: str) -> bool:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        result = await self._database["buckets"].update_one(
+            {
+                "_id": bucket_id,
+                "owner_id": owner_id,
+                "successor_id": successor_id,
+                "state": BucketState.DRAINING.value,
+            },
+            {
+                "$set": {
+                    "owner_id": successor_id,
+                    "successor_id": None,
+                    "state": BucketState.IDLE.value,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+                "$inc": {"revision": 1},
+            },
+        )
+
+        return result.modified_count == 1
+
+    async def sync_owned_bucket_states(self, worker_id: str, states: dict[int, BucketState]) -> None:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        now = datetime.now(timezone.utc)
+
+        operations = [
+            UpdateOne(
+                {
+                    "_id": bucket_id,
+                    "owner_id": worker_id,
+                    "state": {"$in": [BucketState.ACTIVE.value, BucketState.IDLE.value]},
+                },
+                {"$set": {"state": state.value, "updated_at": now}},
+            )
+            for bucket_id, state in states.items()
+        ]
+
+        if operations:
+            await self._database["buckets"].bulk_write(operations, ordered=False)

@@ -1,5 +1,22 @@
 name: linksurf
 
+x-linksurf: &linksurf
+  build: .
+  # shared tag so the image is only built once
+  image: linksurf
+  restart: no
+  stop_grace_period: 2m30s
+  profiles: [ production ]
+  env_file:
+    - .env
+  depends_on:
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  networks:
+    - network
+
 services:
   mongodb:
     image: mongo
@@ -85,23 +102,11 @@ services:
       retries: 5
 
   linksurf:
-    build: .
-    container_name: linksurf
-    restart: no
-    profiles: [ production ]
-    env_file:
-      - .env
+    <<: *linksurf
     environment:
       # host overrides when full deployment
       RABBITMQ_HOST: rabbitmq
       REDIS_HOST: redis
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - network
 
 volumes:
   mongodb:
