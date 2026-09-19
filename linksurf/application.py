@@ -22,11 +22,12 @@ from linksurf.components.frontier import Frontier
 from linksurf.components.parser import Parser
 from linksurf.components.storage import Storage
 from linksurf.events.bus import EventBus
-from linksurf.events.listeners import Listener
+from linksurf.events.listeners import Listener, BetterStackListener
 from linksurf.events.listeners import LoggingListener
-from linksurf.extensions import Extension
+from linksurf.extensions import Extension, VisualizationExtension
 from linksurf.logger import Logger
 from linksurf.services import Services
+from linksurf.utils.env import get_env
 from linksurf.worker import Worker
 
 
@@ -107,13 +108,13 @@ class Linksurf:
         ]
         self.listeners: list[Listener] = [
             LoggingListener(),
-            # BetterStackListener(
-            #     source_token=get_env("BETTERSTACK_SOURCE_TOKEN"),
-            #     host=get_env("BETTERSTACK_HOST")
-            # )
+            BetterStackListener(
+                source_token=get_env("BETTERSTACK_SOURCE_TOKEN"),
+                host=get_env("BETTERSTACK_HOST")
+            )
         ]
         self.extensions: list[Extension] = [
-            # VisualizationExtension(self, self.settings, self.services),
+            VisualizationExtension(self, self.settings, self.services),
         ]
 
         self.worker = Worker(
