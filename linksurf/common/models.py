@@ -37,7 +37,7 @@ class URL:
 
     @property
     def origin(self):
-        """ Returns a string of {scheme}://{domain} """
+        """Returns a string of {scheme}://{domain} """
 
         return f"{self.scheme}://{self.domain}"
 
@@ -242,6 +242,60 @@ class CrawlStatus(StrEnum):
     SUCCEEDED = "succeeded"
 
 
+class WorkerStatus(StrEnum):
+    READY = "ready"
+    DRAINING = "draining"
+
+
+class BucketState(StrEnum):
+    UNASSIGNED = "unassigned"
+    IDLE = "idle"
+    ACTIVE = "active"
+    DRAINING = "draining"
+
+
+@dataclass
+class WorkerModel:
+    id: str
+    status: WorkerStatus
+    started_at: datetime
+    heartbeat_at: datetime
+    expires_at: datetime
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "WorkerModel":
+        return cls(
+            id=data["_id"],
+            status=WorkerStatus(data["status"]),
+            started_at=data["started_at"],
+            heartbeat_at=data["heartbeat_at"],
+            expires_at=data["expires_at"],
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class BucketModel:
+    id: int
+    state: BucketState = BucketState.UNASSIGNED
+    owner_id: str | None = None
+    successor_id: str | None = None
+    revision: int = 0
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "BucketModel":
+        return cls(
+            id=data["_id"],
+            state=BucketState(data["state"]),
+            owner_id=data.get("owner_id"),
+            successor_id=data.get("successor_id"),
+            revision=data.get("revision", 0),
+            updated_at=data["updated_at"],
+        )
+
+
 @dataclass
 class Crawl:
     id: str = field(default_factory=lambda: uuid4().hex)
@@ -256,7 +310,7 @@ class Crawl:
     finished_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # last component's finished_at
 
     @classmethod
-    def from_document(cls, data: dict[str, Any]) -> Crawl:
+    def from_dict(cls, data: dict[str, Any]) -> Crawl:
         response = data.get("response")
 
         return cls(

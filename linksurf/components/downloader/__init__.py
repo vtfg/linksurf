@@ -66,6 +66,8 @@ class Downloader(LooperComponent):
             try:
                 await self.database.start_crawl(payload.url.hash, crawl)
             except Exception as e:
+                await self.back_queue.complete(payload)
+
                 return Error("Database write failed.", retriable=True, exception=e)
 
             payload.crawl_id = crawl.id
