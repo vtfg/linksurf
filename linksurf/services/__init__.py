@@ -19,7 +19,11 @@ class Services:
         # services that come from extensions
         self._extra: list[Service] = []
 
+        self.ready = False
+
     async def connect(self, settings: Settings) -> None:
+        self.ready = False
+
         services = [self.database, self.blob_storage, self.cache, self.fetcher, self.lock] + self._extra
 
         for service in services:
@@ -34,20 +38,25 @@ class Services:
 
             Logger().info("service.start", service=service_name)
 
+        self.ready = True
+
     async def disconnect(self) -> None:
         services = [self.database, self.blob_storage, self.cache, self.fetcher, self.lock] + self._extra
 
-        for service in services:
-            service_name = type(service).__name__
+        try:
+            for service in services:
+                service_name = type(service).__name__
 
-            try:
-                await service.on_stop()
-            except Exception:
-                Logger().exception("service.error", service=service_name, error="Service shutdown failed.")
+                try:
+                    await service.on_stop()
+                except Exception:
+                    Logger().exception("service.error", service=service_name, error="Service shutdown failed.")
 
-                raise
+                    raise
 
-            Logger().info("service.stop", service=service_name)
+                Logger().info("service.stop", service=service_name)
+        finally:
+            self.ready = False
 
     def register(self, service: Service):
         self._extra.append(service)

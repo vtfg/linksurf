@@ -17,9 +17,9 @@ from linksurf.components.frontier.rules import (
 )
 from linksurf.events import CrawlPendingEvent
 from linksurf.events.bus import EventBus
-from linksurf.hashing import bucketize
 from linksurf.services import Services, Database
 from linksurf.services.database import URLModel
+from linksurf.utils.hashing import bucketize
 
 
 class Frontier(ConsumerComponent):

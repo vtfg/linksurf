@@ -1,6 +1,6 @@
 import mmh3
 
-BUCKET_COUNT = 64
+from linksurf.common.constants import BUCKET_COUNT
 
 
 def bucketize(domain: str) -> int:
