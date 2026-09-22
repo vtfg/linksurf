@@ -80,14 +80,17 @@ class Cache(Service):
 
 
 class RedisCache(Cache):
-    def __init__(self, host: str, port: int, db: int = 0):
+    def __init__(self, host: str, port: int, username: str = "default", password: str | None = None, db: int = 0):
         self.host = host
         self.port = port
+        self.username = username
+        self.password = password
         self.db = db
         self._client: redis.Redis | None = None
 
     async def on_start(self, settings: Settings):
-        client = redis.Redis(host=self.host, port=self.port, db=self.db, decode_responses=True)
+        client = redis.Redis(host=self.host, port=self.port, username=self.username, password=self.password, db=self.db,
+                             decode_responses=True)
 
         await client.ping()
 
