@@ -13,11 +13,13 @@ EXCHANGE = "linksurf.exchange"
 
 
 class RabbitMQBroker(Broker):
-    def __init__(self, host: str = "localhost", port: int = 5672):
+    def __init__(self, host: str = "localhost", port: int = 5672, username: str = "guest", password: str = "guest"):
         super().__init__()
 
         self.host = host
         self.port = port
+        self.username = username
+        self.password = password
         self.connection: aio_pika.abc.AbstractRobustConnection | None = None
         self.channel: aio_pika.abc.AbstractChannel | None = None
 
@@ -27,7 +29,9 @@ class RabbitMQBroker(Broker):
     async def connect(self):
         connection = await aio_pika.connect_robust(
             host=self.host,
-            port=self.port
+            port=self.port,
+            login=self.username,
+            password=self.password,
         )
 
         channel = await connection.channel()

@@ -30,15 +30,24 @@ if __name__ == "__main__":
         cache=RedisCache(
             host=get_env("REDIS_HOST"),
             port=get_env("REDIS_PORT", cast=int),
+            username=get_env("REDIS_USERNAME", required=False),
+            password=get_env("REDIS_PASSWORD", required=False),
         ),
         fetcher=HTTPXFetcher(),
         lock=RedisLock(
             host=get_env("REDIS_HOST"),
             port=get_env("REDIS_PORT", cast=int),
+            username=get_env("REDIS_USERNAME", required=False),
+            password=get_env("REDIS_PASSWORD", required=False),
         ),
     )
 
-    broker = RabbitMQBroker(host=get_env("RABBITMQ_HOST"), port=get_env("RABBITMQ_PORT", cast=int))
+    broker = RabbitMQBroker(
+        host=get_env("RABBITMQ_HOST"),
+        port=get_env("RABBITMQ_PORT", cast=int),
+        username=get_env("RABBITMQ_USERNAME", required=False),
+        password=get_env("RABBITMQ_PASSWORD", required=False),
+    )
 
     settings = Settings(
         identifier="Linksurf",
