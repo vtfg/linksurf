@@ -1,12 +1,22 @@
 name: linksurf
 
+x-linksurf: &linksurf
+  build: .
+  image: linksurf
+  restart: no
+  stop_grace_period: 2m30s
+  env_file:
+    - .env
+
 services:
-  linksurf:
-    build: .
-    image: linksurf
-    restart: no
-    stop_grace_period: 2m30s
-    env_file:
-      - .env
-    deploy:
-      replicas: 4
+  linksurf-1:
+    <<: *linksurf
+
+  linksurf-2:
+    <<: *linksurf
+
+  linksurf-3:
+    <<: *linksurf
+
+  linksurf-4:
+    <<: *linksurf
