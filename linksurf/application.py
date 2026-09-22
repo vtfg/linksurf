@@ -128,6 +128,8 @@ class Linksurf:
             },
         )
 
+        EventBus().set_metadata({"worker": self.worker.identifier})
+
         self._heartbeat_task: asyncio.Task | None = None
         self.stopping = False
 
