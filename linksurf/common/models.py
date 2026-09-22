@@ -37,9 +37,11 @@ class URL:
 
     @property
     def origin(self):
-        """Returns a string of {scheme}://{domain} """
+        """
+        Returns a string of {scheme}://{netloc}
+        """
 
-        return f"{self.scheme}://{self.domain}"
+        return f"{self.scheme}://{self.netloc}"
 
     @property
     def extension(self) -> str | None:
