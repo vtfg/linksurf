@@ -5,21 +5,26 @@ from typing import Any, Literal, Union
 
 
 @dataclass
-class ComponentSubscribeEvent:
+class EventMetadata:
+    worker: str | None = field(default=None, kw_only=True)
+
+
+@dataclass
+class ComponentSubscribeEvent(EventMetadata):
     component: str
     topic: str
     name: Literal["component.subscribe"] = field(default="component.subscribe", init=False)
 
 
 @dataclass
-class ComponentLoopEvent:
+class ComponentLoopEvent(EventMetadata):
     component: str
     function: str
     name: Literal["component.loop"] = field(default="component.loop", init=False)
 
 
 @dataclass
-class ComponentStartEvent:
+class ComponentStartEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -31,7 +36,7 @@ class ComponentStartEvent:
 
 
 @dataclass
-class ComponentFinishEvent:
+class ComponentFinishEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -44,7 +49,7 @@ class ComponentFinishEvent:
 
 
 @dataclass
-class ComponentErrorEvent:
+class ComponentErrorEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -58,7 +63,7 @@ class ComponentErrorEvent:
 
 
 @dataclass
-class ComponentPublishEvent:
+class ComponentPublishEvent(EventMetadata):
     component: str
     topic: str
     urls: list[tuple[str, int]]  # (address, priority)
@@ -66,7 +71,7 @@ class ComponentPublishEvent:
 
 
 @dataclass
-class RuleStartEvent:
+class RuleStartEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -75,7 +80,7 @@ class RuleStartEvent:
 
 
 @dataclass
-class RuleFinishEvent:
+class RuleFinishEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -85,7 +90,7 @@ class RuleFinishEvent:
 
 
 @dataclass
-class RuleErrorEvent:
+class RuleErrorEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -97,7 +102,7 @@ class RuleErrorEvent:
 
 
 @dataclass
-class DeduplicatorStartEvent:
+class DeduplicatorStartEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -106,7 +111,7 @@ class DeduplicatorStartEvent:
 
 
 @dataclass
-class DeduplicatorFinishEvent:
+class DeduplicatorFinishEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -116,7 +121,7 @@ class DeduplicatorFinishEvent:
 
 
 @dataclass
-class DeduplicatorErrorEvent:
+class DeduplicatorErrorEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -128,7 +133,7 @@ class DeduplicatorErrorEvent:
 
 
 @dataclass
-class MiddlewareStartEvent:
+class MiddlewareStartEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -137,7 +142,7 @@ class MiddlewareStartEvent:
 
 
 @dataclass
-class MiddlewareFinishEvent:
+class MiddlewareFinishEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -147,7 +152,7 @@ class MiddlewareFinishEvent:
 
 
 @dataclass
-class MiddlewareErrorEvent:
+class MiddlewareErrorEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -159,7 +164,7 @@ class MiddlewareErrorEvent:
 
 
 @dataclass
-class FilterStartEvent:
+class FilterStartEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -168,7 +173,7 @@ class FilterStartEvent:
 
 
 @dataclass
-class FilterFinishEvent:
+class FilterFinishEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -178,7 +183,7 @@ class FilterFinishEvent:
 
 
 @dataclass
-class FilterErrorEvent:
+class FilterErrorEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -190,7 +195,7 @@ class FilterErrorEvent:
 
 
 @dataclass
-class PrioritizerStartEvent:
+class PrioritizerStartEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -199,7 +204,7 @@ class PrioritizerStartEvent:
 
 
 @dataclass
-class PrioritizerFinishEvent:
+class PrioritizerFinishEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -209,7 +214,7 @@ class PrioritizerFinishEvent:
 
 
 @dataclass
-class PrioritizerErrorEvent:
+class PrioritizerErrorEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -221,7 +226,7 @@ class PrioritizerErrorEvent:
 
 
 @dataclass
-class RequestEvent:
+class RequestEvent(EventMetadata):
     correlation_id: str
     component: str
     scheme: str
@@ -235,7 +240,7 @@ class RequestEvent:
 
 
 @dataclass
-class CrawlPendingEvent:
+class CrawlPendingEvent(EventMetadata):
     correlation_id: str
     url: str
     component: str
@@ -244,7 +249,7 @@ class CrawlPendingEvent:
 
 
 @dataclass
-class CrawlStartEvent:
+class CrawlStartEvent(EventMetadata):
     correlation_id: str
     id: str
     url: str
@@ -254,7 +259,7 @@ class CrawlStartEvent:
 
 
 @dataclass
-class CrawlFinishEvent:
+class CrawlFinishEvent(EventMetadata):
     correlation_id: str
     id: str
     url: str

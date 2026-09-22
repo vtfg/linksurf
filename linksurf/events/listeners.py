@@ -34,6 +34,7 @@ class LoggingListener(Listener):
         exception = getattr(event, "exception", None)
         data = asdict(event)
         name = data.pop("name")
+        data.pop("worker", None)  # from injected metadata
         data.pop("correlation_id", None)
         data.pop("exception", None)
 
