@@ -27,6 +27,7 @@ from linksurf.events.listeners import LoggingListener
 from linksurf.extensions import Extension
 from linksurf.logger import Logger
 from linksurf.services import Services
+from linksurf.services.lock import LockAcquisitionError
 from linksurf.utils.env import get_env
 from linksurf.worker import Worker
 
@@ -273,18 +274,21 @@ class Linksurf:
         Logger().info("application.stop")
 
     async def seed(self, urls: list[URL]) -> None:
-        Logger().info("application.seed", count=len(urls))
+        lock = self.services.lock
 
-        for url in urls:
-            payload = Payload(url)
+        try:
+            async with lock.acquire("seed", ttl_seconds=5 * 60, blocking_timeout_seconds=5):
+                Logger().info("application.seed", message="Seeding using the broker.", count=len(urls))
 
-            error = await self.frontier.process(payload)
+                for url in urls:
+                    payload = Payload(url)
 
-            if error:
-                Logger().error("application.error", message=f"Unable to seed URL.", url=url.address,
-                               error=error.message)
-
-                continue
+                    try:
+                        await self.broker.seed(self.frontier.TOPIC, payload)
+                    except:
+                        Logger().exception("application.error", error="Unable to seed URL.", url=url.address)
+        except LockAcquisitionError:
+            Logger().info("application.seed", message="Another worker is already seeding.")
 
     async def heartbeat(self) -> None:
         """
