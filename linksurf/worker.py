@@ -72,7 +72,7 @@ class Worker:
         Refresh the membership lease, publish local work, then reconcile.
         """
 
-        await self.register()
+        await self.upsert()
 
         if self.back_queue.ready:
             await self.publish_local_bucket_states()
@@ -81,7 +81,7 @@ class Worker:
 
         Logger().info("worker.membership_refreshed", identifier=self.identifier, status=self.status.value)
 
-    async def register(self) -> None:
+    async def upsert(self) -> None:
         now = datetime.now(timezone.utc)
 
         await self.database.upsert_worker(WorkerModel(
@@ -97,7 +97,7 @@ class Worker:
 
     def mark_draining(self) -> None:
         """
-        Stop participating as a receiver while preserving the lease to drain.
+        Stop local admission immediately without performing I/O.
         """
 
         self.status = WorkerStatus.DRAINING
@@ -110,6 +110,10 @@ class Worker:
         """
 
         async with self.lock.acquire(BUCKET_COORDINATION_LOCK, blocking_timeout_seconds=120):
+            # Learn about a handoff before reconciling so the current owner can
+            # stop admission and attest that the bucket has actually drained.
+            await self.sync_backqueue_assignments()
+
             await self.reconcile()
 
         await self.sync_backqueue_assignments()
@@ -126,6 +130,8 @@ class Worker:
                 await self.database.set_bucket_assignment(
                     bucket.id, None, BucketState.UNASSIGNED,
                 )
+
+            await self.database.delete_worker(self.identifier)
 
             Logger().info("worker.released", identifier=self.identifier, buckets=[bucket.id for bucket in buckets])
 
@@ -152,6 +158,11 @@ class Worker:
 
         database = self.database
         now = datetime.now(timezone.utc)
+
+        expired_workers = await database.delete_expired_workers(now)
+
+        if expired_workers:
+            Logger().warning("worker.expired_removed", count=expired_workers)
 
         live_workers = await database.get_live_workers(now)
         live_ids = {worker.id for worker in live_workers}
@@ -228,13 +239,12 @@ class Worker:
                 if destination is None:
                     break
 
-                if state == BucketState.IDLE:
-                    await database.set_bucket_assignment(bucket.id, destination, BucketState.IDLE)
-                    Logger().info("worker.bucket_transferred", bucket=bucket.id,
-                                  source=source, destination=destination, state=state.value)
-                elif await database.mark_bucket_draining(bucket.id, source, destination):
+                # Persisted IDLE can lag the owner's in-memory queue and
+                # in-flight counters. Every handoff must therefore drain under
+                # the old owner before the successor is allowed to admit work.
+                if await database.mark_bucket_draining(bucket.id, source, destination):
                     Logger().info("worker.bucket_draining", bucket=bucket.id,
-                                  source=source, successor=destination)
+                                  source=source, successor=destination, previous_state=state.value)
                 else:
                     continue
 
@@ -254,14 +264,16 @@ class Worker:
                 if bucket is None or bucket.successor_id is None:
                     continue
 
-                if await database.promote_drained_bucket(bucket.id, self.identifier, bucket.successor_id):
+                successor_id = bucket.successor_id
+
+                if await database.promote_drained_bucket(bucket.id, self.identifier, successor_id):
                     Logger().info("worker.bucket_promoted", bucket=bucket.id,
-                                  owner=bucket.successor_id, reason="drained")
+                                  owner=successor_id, reason="drained")
 
     @staticmethod
     def target_counts(worker_ids: list[str], bucket_count: int) -> dict[str, int]:
         base, remainder = divmod(bucket_count, len(worker_ids))
-        
+
         return {
             worker_id: base + (1 if index < remainder else 0)
             for index, worker_id in enumerate(worker_ids)
