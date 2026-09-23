@@ -23,7 +23,6 @@ from linksurf.components.parser import Parser
 from linksurf.components.storage import Storage
 from linksurf.events.bus import EventBus
 from linksurf.events.listeners import Listener, BetterStackListener
-from linksurf.events.listeners import LoggingListener
 from linksurf.extensions import Extension
 from linksurf.logger import Logger
 from linksurf.services import Services
@@ -108,7 +107,7 @@ class Linksurf:
             self.storage,
         ]
         self.listeners: list[Listener] = [
-            LoggingListener(),
+            # LoggingListener(),
             BetterStackListener(
                 source_token=get_env("BETTERSTACK_SOURCE_TOKEN"),
                 host=get_env("BETTERSTACK_HOST")
