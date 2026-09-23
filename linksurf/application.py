@@ -223,7 +223,13 @@ class Linksurf:
         if self.services.ready and self.back_queue.ready:
             # The signal handler normally starts draining. This fallback also
             # prevents new local admission after an unexpected broker exit.
-            self.back_queue.drain()
+            self.worker.mark_draining()
+
+            try:
+                # updates the Worker's status immediately
+                await self.worker.upsert()
+            except Exception:
+                Logger().exception("worker.error", error="Failed to publish draining state.")
 
             drained = await self.back_queue.wait_for_drain(SHUTDOWN_DRAIN_TIMEOUT_SECONDS)
 

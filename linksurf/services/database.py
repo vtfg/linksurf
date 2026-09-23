@@ -164,6 +164,12 @@ class Database(Service):
     async def get_live_workers(self, now: datetime) -> list[WorkerModel]:
         raise NotImplementedError()
 
+    async def delete_worker(self, worker_id: str) -> None:
+        raise NotImplementedError()
+
+    async def delete_expired_workers(self, now: datetime) -> int:
+        raise NotImplementedError()
+
     async def get_buckets(self) -> list[BucketModel]:
         raise NotImplementedError()
 
@@ -457,6 +463,20 @@ class MongoDatabase(Database):
         cursor = self._database["workers"].find({"expires_at": {"$gt": now}}).sort("_id", 1)
 
         return [WorkerModel.from_dict(document) async for document in cursor]
+
+    async def delete_worker(self, worker_id: str) -> None:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        await self._database["workers"].delete_one({"_id": worker_id})
+
+    async def delete_expired_workers(self, now: datetime) -> int:
+        if self._database is None:
+            raise RuntimeError("Service not started.")
+
+        result = await self._database["workers"].delete_many({"expires_at": {"$lte": now}})
+
+        return result.deleted_count
 
     async def get_buckets(self) -> list[BucketModel]:
         if self._database is None:
