@@ -131,6 +131,7 @@ class Linksurf:
         EventBus().set_metadata({"worker": self.worker.identifier})
 
         self._heartbeat_task: asyncio.Task | None = None
+        self._coordination_task: asyncio.Task | None = None
         self.stopping = False
 
     async def start(self, seed: Seed) -> None:
@@ -174,6 +175,10 @@ class Linksurf:
 
             return
 
+        # Membership renewal must continue even when startup reconciliation is
+        # waiting for the bucket coordination lock.
+        self._heartbeat_task = asyncio.create_task(self.heartbeat())
+
         Logger().info("extensions.start", extensions=[type(extension).__name__ for extension in self.extensions])
 
         for extension in self.extensions:
@@ -199,8 +204,6 @@ class Linksurf:
 
         for component in self.components:
             await component.on_start(self.settings, self.services)
-
-        self._heartbeat_task = asyncio.create_task(self.heartbeat())
 
         await self.seed(seed.urls)
 
@@ -246,6 +249,13 @@ class Linksurf:
             self._heartbeat_task.cancel()
             await asyncio.gather(self._heartbeat_task, return_exceptions=True)
             self._heartbeat_task = None
+
+        if self._coordination_task is not None:
+            self._coordination_task.cancel()
+
+            await asyncio.gather(self._coordination_task, return_exceptions=True)
+
+            self._coordination_task = None
 
         for extension in self.extensions:
             try:
@@ -300,7 +310,7 @@ class Linksurf:
 
     async def heartbeat(self) -> None:
         """
-        Periodically run readiness checks and refresh worker membership.
+        Refresh worker membership independently from bucket coordination.
         """
 
         try:
@@ -310,12 +320,29 @@ class Linksurf:
                 try:
                     # TODO: Validate services and broker readiness, shutdown otherwise
 
-                    await self.worker.refresh()
+                    await self.worker.upsert()
 
                     Logger().info("application.heartbeat", status=self.worker.status)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
                     Logger().exception("application.heartbeat_error")
+
+                    continue
+
+                if (
+                        not self.stopping
+                        and self.back_queue.ready
+                        and (self._coordination_task is None or self._coordination_task.done())
+                ):
+                    self._coordination_task = asyncio.create_task(self.coordinate())
         except asyncio.CancelledError:
             return
+
+    async def coordinate(self) -> None:
+        try:
+            await self.worker.coordinate()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            Logger().exception("application.coordination_error")

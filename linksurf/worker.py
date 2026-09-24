@@ -74,12 +74,19 @@ class Worker:
 
         await self.upsert()
 
+        await self.coordinate()
+
+        Logger().info("worker.membership_refreshed", identifier=self.identifier, status=self.status.value)
+
+    async def coordinate(self) -> None:
+        """
+        Publish local bucket activity and reconcile bucket ownership.
+        """
+
         if self.back_queue.ready:
             await self.publish_local_bucket_states()
 
         await self.acquire()
-
-        Logger().info("worker.membership_refreshed", identifier=self.identifier, status=self.status.value)
 
     async def upsert(self) -> None:
         now = datetime.now(timezone.utc)
