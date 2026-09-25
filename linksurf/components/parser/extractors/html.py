@@ -5,35 +5,28 @@ from bs4 import BeautifulSoup
 from linksurf.common.models import MimeType, Link, URL, LinkType
 from linksurf.common.payload import Payload
 from linksurf.components.parser import ExtractorRules
-from linksurf.components.parser.extractors import Extractor
+from linksurf.components.parser.extractors import HTMLExtractor
 
 
-class MetadataExtractor(Extractor):
+class MetadataExtractor(HTMLExtractor):
     NAME = "metadata"
     RULES = ExtractorRules(mime_types=[MimeType.HTML])
 
-    def extract(self, payload: Payload, contents: bytes) -> dict[str, str | list]:
-        if payload.response is None:
-            raise Exception("Payload doesn't contain a response.")
-
-        html = contents.decode(payload.response.encoding)
-
-        soup = BeautifulSoup(html, "html.parser")
-
-        html_tag = soup.find("html")
+    def extract(self, payload: Payload, document: BeautifulSoup, /) -> dict[str, str | list]:
+        html_tag = document.find("html")
         language = html_tag.attrs.get("lang") or None
 
-        title_tag = soup.find("title")
+        title_tag = document.find("title")
         title = title_tag.get_text(strip=True) if title_tag else None
 
-        base_tag = soup.select_one("head > base[href]")
+        base_tag = document.select_one("head > base[href]")
         base = base_tag.get("href").strip() if base_tag else None
 
         metas = {}
         opengraph = {}
         article = {}
 
-        for meta in soup.find_all("meta"):
+        for meta in document.find_all("meta"):
             name = meta.get("name") or meta.get("property")
             content = meta.get("content")
 
@@ -61,20 +54,16 @@ class MetadataExtractor(Extractor):
         }
 
 
-class LinksExtractor(Extractor):
+class LinksExtractor(HTMLExtractor):
     NAME = "links"
     RULES = ExtractorRules(mime_types=[MimeType.HTML])
 
-    def extract(self, payload: Payload, contents: bytes) -> list[Link]:
-        html = contents.decode(payload.response.encoding)
-
-        soup = BeautifulSoup(html, "html.parser")
-
+    def extract(self, payload: Payload, document: BeautifulSoup, /) -> list[Link]:
         page_url = payload.url
 
         base_url = page_url.address
 
-        base_tag = soup.select_one("head > base[href]")
+        base_tag = document.select_one("head > base[href]")
 
         if base_tag:
             # base href may be relative
@@ -86,7 +75,7 @@ class LinksExtractor(Extractor):
 
         links: list[Link] = []
 
-        for a in soup.find_all("a"):
+        for a in document.find_all("a"):
             href = a.get("href")
 
             if not href or href.startswith(("#", "mailto:", "javascript:")):
@@ -118,36 +107,27 @@ class LinksExtractor(Extractor):
         return links
 
 
-class TextExtractor(Extractor):
+class TextExtractor(HTMLExtractor):
     NAME = "text"
     RULES = ExtractorRules(mime_types=[MimeType.HTML])
 
-    def extract(self, payload: Payload, contents: bytes) -> str:
-        html = contents.decode(payload.response.encoding)
+    def extract(self, payload: Payload, document: BeautifulSoup, /) -> str:
+        excluded_tags = {"script", "style", "head", "title"}
 
-        soup = BeautifulSoup(html, "html.parser")
-
-        for tag in soup(["script", "style", "head", "title"]):
-            tag.decompose()
-
-        text = soup.get_text(separator="\n", strip=True)
-
-        return text
+        return "\n".join(
+            text
+            for string in document.find_all(string=True)
+            if not any(parent.name in excluded_tags for parent in string.parents)
+            if (text := str(string).strip())
+        )
 
 
-class AuthorExtractor(Extractor):
+class AuthorExtractor(HTMLExtractor):
     NAME = "author"
     RULES = ExtractorRules(mime_types=[MimeType.HTML], domain="quotes.toscrape.com", path_pattern=r"^/author/")
 
-    def extract(self, payload: Payload, contents: bytes) -> dict[str, str | None]:
-        if payload.response is None:
-            raise Exception("Payload doesn't contain a response.")
-
-        html = contents.decode(payload.response.encoding)
-
-        soup = BeautifulSoup(html, "html.parser")
-
-        details = soup.select_one(".author-details")
+    def extract(self, payload: Payload, document: BeautifulSoup, /) -> dict[str, str | None]:
+        details = document.select_one(".author-details")
 
         name_tag = details.select_one(".author-title") if details else None
         description_tag = details.select_one(".author-description") if details else None

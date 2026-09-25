@@ -22,6 +22,7 @@ class RabbitMQBroker(Broker):
         self.password = password
         self.connection: aio_pika.abc.AbstractRobustConnection | None = None
         self.channel: aio_pika.abc.AbstractChannel | None = None
+        self.exchange: aio_pika.abc.AbstractExchange | None = None
 
         self._consumers: list[tuple[aio_pika.abc.AbstractQueue, str]] = []
         self._in_flight: set[asyncio.Task] = set()
@@ -35,11 +36,12 @@ class RabbitMQBroker(Broker):
         )
 
         channel = await connection.channel()
-        await channel.declare_exchange(name=EXCHANGE, type="direct", durable=True)
+        exchange = await channel.declare_exchange(name=EXCHANGE, type="direct", durable=True)
         await channel.set_qos(prefetch_count=1)
 
         self.connection = connection
         self.channel = channel
+        self.exchange = exchange
 
         self._stop_event = asyncio.Event()
 
@@ -86,9 +88,10 @@ class RabbitMQBroker(Broker):
         self._consumers.append((queue, consumer_tag))
 
     async def publish(self, topic: str, data: Any, priority: int = MIN_QUEUE_PRIORITY):
-        exchange = await self.channel.get_exchange(EXCHANGE)
+        if self.exchange is None:
+            raise RuntimeError("Broker is not connected.")
 
-        await exchange.publish(
+        await self.exchange.publish(
             aio_pika.Message(
                 body=json.dumps(data.to_dict()).encode(),
                 content_type="application/json",

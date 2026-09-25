@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
 
+from bs4 import BeautifulSoup
+
 from linksurf.common.models import URL, MimeType
 from linksurf.common.payload import Payload
 
@@ -36,7 +38,12 @@ class Extractor:
     NAME: str
     RULES: ExtractorRules
 
-    def extract(self, payload: Payload, contents: bytes) -> Any:
+    def extract(self, payload: Payload, source: Any, /) -> Any:
+        raise NotImplementedError()
+
+
+class HTMLExtractor(Extractor):
+    def extract(self, payload: Payload, document: BeautifulSoup, /) -> Any:
         raise NotImplementedError()
 
 
@@ -45,6 +52,13 @@ class ExtractorEntry:
     extractor: Extractor
     rules: ExtractorRules = field(default_factory=ExtractorRules)
     callback: ExtractorCallback | None = None
+
+
+@dataclass(frozen=True)
+class ExtractorResult:
+    entry: ExtractorEntry
+    data: Any = None
+    exception: Exception | None = None
 
 
 class ExtractorsRegistry:
@@ -56,3 +70,42 @@ class ExtractorsRegistry:
 
     def match(self, mime_type: MimeType, url: URL) -> list[ExtractorEntry]:
         return [entry for entry in self._entries if entry.rules.matches(mime_type, url)]
+
+    def extract(self, payload: Payload, contents: bytes, /) -> list[ExtractorResult]:
+        if payload.content is None:
+            return []
+
+        entries = self.match(payload.content.type, payload.url)
+
+        if not entries:
+            return []
+
+        html_document = None
+
+        if any(isinstance(entry.extractor, HTMLExtractor) for entry in entries):
+            try:
+                html_document = self._build_html_document(payload, contents)
+            except Exception as exception:
+                return [ExtractorResult(entry, exception=exception) for entry in entries]
+
+        results: list[ExtractorResult] = []
+
+        for entry in entries:
+            source = html_document if isinstance(entry.extractor, HTMLExtractor) else contents
+
+            try:
+                data = entry.extractor.extract(payload, source)
+
+                results.append(ExtractorResult(entry, data=data))
+            except Exception as exception:
+                results.append(ExtractorResult(entry, exception=exception))
+
+        return results
+
+    def _build_html_document(self, payload: Payload, contents: bytes) -> BeautifulSoup:
+        if payload.response is None:
+            raise ValueError("Payload doesn't contain a response.")
+
+        html = contents.decode(payload.response.encoding or "utf-8")
+
+        return BeautifulSoup(html, "html.parser")

@@ -10,7 +10,12 @@ from linksurf.components.parser.extractors import (
     ExtractorsRegistry,
     ExtractorRules
 )
-from linksurf.components.parser.extractors.html import MetadataExtractor, LinksExtractor, AuthorExtractor, TextExtractor
+from linksurf.components.parser.extractors.html import (
+    AuthorExtractor,
+    LinksExtractor,
+    MetadataExtractor,
+    TextExtractor,
+)
 from linksurf.components.parser.filters import LanguageFilter
 from linksurf.components.parser.middlewares import LanguageMiddleware
 from linksurf.logger import Logger
@@ -60,29 +65,31 @@ class Parser(ConsumerComponent):
         if contents is None:
             return Error("Blob downloaded content is empty.", retriable=False)
 
-        matching_extractors = self.extractors_registry.match(payload.content.type, payload.url)
-
-        if len(matching_extractors) == 0:
-            return Error("No matching extractors for content.", retriable=False)
-
         extracted = {}
 
-        for entry in matching_extractors:
-            try:
-                data = await asyncio.to_thread(entry.extractor.extract, payload, contents)
+        extraction_results = await asyncio.to_thread(
+            self.extractors_registry.extract,
+            payload,
+            contents,
+        )
 
-                if entry.callback:
-                    await entry.callback(payload, data)
-            except Exception as e:
+        if not extraction_results:
+            return Error("No matching extractors for content.", retriable=False)
+
+        for result in extraction_results:
+            if result.exception is not None:
                 Logger().warning(
                     "component.warning",
-                    message=f"Extractor {entry.extractor.NAME} failed for {payload.url.address}",
-                    exception=str(e),
+                    message=f"Extractor {result.entry.extractor.NAME} failed for {payload.url.address}",
+                    exception=str(result.exception),
                 )
 
                 continue
 
-            extracted[entry.extractor.NAME] = data
+            if result.entry.callback:
+                await result.entry.callback(payload, result.data)
+
+            extracted[result.entry.extractor.NAME] = result.data
 
         payload.content.extracted = extracted
 
@@ -112,32 +119,38 @@ class Parser(ConsumerComponent):
 
         current_url = payload.url.address
 
-        unique_links: set[str] = set()
+        unique_urls: dict[str, URL] = {}
 
         for link in links:
             if not isinstance(link, Link):
                 continue
 
-            if link.target == current_url:
-                continue
-
             url = URL(link.target)
+            normalized_target = url.address
 
-            try:
-                seen = await self.cache.is_url_seen(url)
-            except Exception as e:
-                Logger().warning(
-                    "component.warning",
-                    message="Failed to check if url is seen.",
-                    exception=str(e),
-                )
-
+            if normalized_target == current_url:
                 continue
 
-            if not seen:
-                unique_links.add(link.target)
+            unique_urls.setdefault(normalized_target, url)
 
-        links_payloads = [Payload(url=URL(link)) for link in unique_links]
+        urls = list(unique_urls.values())
+
+        try:
+            seen_results = await self.cache.are_urls_seen(urls)
+        except Exception as e:
+            Logger().warning(
+                "component.warning",
+                message="Failed to check if urls are seen.",
+                exception=str(e),
+            )
+
+            return
+
+        links_payloads = [
+            Payload(url=url)
+            for url, seen in zip(urls, seen_results)
+            if not seen
+        ]
 
         if len(links_payloads) > 0:
             await self.publish("url.process", links_payloads)
