@@ -26,7 +26,7 @@ class Storage(ConsumerComponent):
 
         self.cache = services.cache
 
-        await self.subscribe(self.TOPIC, self.store, concurrency=10)
+        await self.subscribe(self.TOPIC, self.store, concurrency=5)
 
     async def store(self, payload: Payload) -> Error | None:
         if payload.content is None or payload.response is None:
