@@ -60,6 +60,9 @@ class Cache(Service):
     async def is_url_seen(self, url: URL) -> bool:
         raise NotImplementedError()
 
+    async def are_urls_seen(self, urls: list[URL]) -> list[bool]:
+        raise NotImplementedError()
+
     async def save_domain_release_time(self, domain: str, port: int, time: float) -> None:
         raise NotImplementedError()
 
@@ -172,6 +175,20 @@ class RedisCache(Cache):
             raise RuntimeError("Service not started.")
 
         return await self._client.sismember(_URL_SEEN_CACHE_KEY, url.hash) == 1
+
+    async def are_urls_seen(self, urls: list[URL]) -> list[bool]:
+        if self._client is None:
+            raise RuntimeError("Service not started.")
+
+        if not urls:
+            return []
+
+        results = await self._client.smismember(
+            _URL_SEEN_CACHE_KEY,
+            [url.hash for url in urls],
+        )
+
+        return [bool(result) for result in results]
 
     async def save_domain_release_time(self, domain: str, port: int, time: float) -> None:
         if self._client is None:
