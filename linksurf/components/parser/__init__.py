@@ -38,7 +38,7 @@ class Parser(ConsumerComponent):
         self.extractors_registry.register(MetadataExtractor())
         self.extractors_registry.register(LinksExtractor(), callback=self._filter_and_publish_links)
         self.extractors_registry.register(AuthorExtractor())
-        self.extractors_registry.register(TextExtractor())
+        # self.extractors_registry.register(TextExtractor())
 
     async def on_start(self, settings: Settings, services: Services):
         await super().on_start(settings, services)
@@ -46,7 +46,7 @@ class Parser(ConsumerComponent):
         self.blob_storage = services.blob_storage
         self.cache = services.cache
 
-        await self.subscribe(self.TOPIC, self.parse, concurrency=20)
+        await self.subscribe(self.TOPIC, self.parse, concurrency=10)
 
     async def parse(self, payload: Payload) -> Error | None:
         if payload.content is None:
