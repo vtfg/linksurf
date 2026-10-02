@@ -114,7 +114,7 @@ class Component:
         self.filters: list[Filter] = []
         self.prioritizer: Prioritizer | None = None
 
-        if self.NAME is None:
+        if getattr(self, "NAME", None) is None:
             self.NAME = type(self).__name__
 
     async def on_start(self, settings: Settings, services: Services):
@@ -411,7 +411,7 @@ class Component:
         """
         Saves this component's execution into the payload's current crawl entry.
 
-        A crawl is only created inside the Downloader, so the Frontier's execution details is discarded.
+        A crawl is only created inside the Downloader, so the Frontier's execution details are discarded.
         """
 
         from linksurf.events import CrawlFinishEvent
