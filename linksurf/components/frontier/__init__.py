@@ -4,10 +4,10 @@ from linksurf.common.payload import Payload
 from linksurf.common.settings import Settings
 from linksurf.common.types import Error
 from linksurf.components.base import ConsumerComponent
-from linksurf.components.frontier.deduplicator import URLDeduplicator
+from linksurf.components.frontier.deduplicators import URLDeduplicator
 from linksurf.components.frontier.filters import RobotsExclusionFilter, CountryFilter
 from linksurf.components.frontier.middlewares import RobotsExclusionMiddleware, DNSMiddleware, CountryMiddleware
-from linksurf.components.frontier.prioritizer import MultiFactorPrioritizer
+from linksurf.components.frontier.prioritizers import MultiFactorPrioritizer
 from linksurf.components.frontier.rules import (
     SchemeRule,
     URLExtensionRule,

@@ -22,7 +22,7 @@ class URLDeduplicator(Deduplicator):
         try:
             await self.cache.mark_url_seen(payload.url)
         except Exception as e:
-            return Error("Cache lookup failed.", retriable=True, exception=e)
+            return Error("Cache write failed.", retriable=True, exception=e)
 
         return None
 

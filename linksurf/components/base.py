@@ -373,7 +373,7 @@ class Component:
 
             return None, response.error
 
-        if not response.data:
+        if response.data is None:
             error = Error("Prioritizer gave empty response.", retriable=True)
 
             await EventBus().emit(PrioritizerErrorEvent(
